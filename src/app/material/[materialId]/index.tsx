@@ -1,8 +1,9 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useCallback } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
+import { ErrorBanner } from '@/components/error-banner';
 import { PrimaryButton } from '@/components/primary-button';
 import { ScreenContainer } from '@/components/screen-container';
 import { StatusBadge } from '@/components/status-badge';
@@ -10,6 +11,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useOrderDraft } from '@/context/order-draft-context';
 import { Colors, Spacing } from '@/constants/theme';
+import { useAsyncData } from '@/hooks/use-async-data';
 import { getCategoryById } from '@/services/categories-service';
 import { getMaterialById } from '@/services/materials-service';
 import { getSupplierById } from '@/services/suppliers-service';
@@ -20,24 +22,59 @@ import { pluralizeUnit } from '@/types/unit';
 const TRUCK_ICON: AppIcon = { ios: 'shippingbox.fill', android: 'local_shipping', web: 'local_shipping' };
 const STORE_ICON: AppIcon = { ios: 'storefront.fill', android: 'storefront', web: 'storefront' };
 
+interface MaterialDetailData {
+  material: Material | null;
+  category: Category | null;
+  supplier: Supplier | null;
+}
+
+const EMPTY_MATERIAL_DETAIL: MaterialDetailData = { material: null, category: null, supplier: null };
+
 export default function MaterialDetailScreen() {
   const { materialId } = useLocalSearchParams<{ materialId: string }>();
   const { startDraft } = useOrderDraft();
-  const [material, setMaterial] = useState<Material | null>(null);
-  const [category, setCategory] = useState<Category | null>(null);
-  const [supplier, setSupplier] = useState<Supplier | null>(null);
 
-  useEffect(() => {
-    getMaterialById(materialId).then((result) => {
-      setMaterial(result ?? null);
-      if (result) {
-        getCategoryById(result.categoryId).then((c) => setCategory(c ?? null));
-        getSupplierById(result.supplierId).then((s) => setSupplier(s ?? null));
-      }
-    });
+  const fetchMaterialDetail = useCallback(async (): Promise<MaterialDetailData> => {
+    const material = await getMaterialById(materialId);
+    if (!material) return { material: null, category: null, supplier: null };
+
+    const [category, supplier] = await Promise.all([
+      getCategoryById(material.categoryId),
+      getSupplierById(material.supplierId),
+    ]);
+    return { material, category: category ?? null, supplier: supplier ?? null };
   }, [materialId]);
 
-  if (!material) return null;
+  const { data, isLoading, error, refetch } = useAsyncData<MaterialDetailData>(fetchMaterialDetail, EMPTY_MATERIAL_DETAIL);
+  const { material, category, supplier } = data;
+
+  if (isLoading && !material) {
+    return (
+      <ScreenContainer contentContainerStyle={styles.centeredContent}>
+        <ActivityIndicator />
+      </ScreenContainer>
+    );
+  }
+
+  if (error && !material) {
+    return (
+      <ScreenContainer>
+        <Stack.Screen options={{ title: 'Material' }} />
+        <ErrorBanner message={error} onRetry={refetch} />
+      </ScreenContainer>
+    );
+  }
+
+  if (!material) {
+    return (
+      <ScreenContainer>
+        <Stack.Screen options={{ title: 'Material' }} />
+        <ThemedText type="small" themeColor="textSecondary">
+          This material could not be found.
+        </ThemedText>
+      </ScreenContainer>
+    );
+  }
 
   const outOfStock = material.stockStatus === 'out_of_stock';
 
@@ -45,6 +82,8 @@ export default function MaterialDetailScreen() {
     <>
       <Stack.Screen options={{ title: material.name }} />
       <ScreenContainer>
+        {error && <ErrorBanner message={error} onRetry={refetch} />}
+
         <ThemedView type="backgroundElement" style={styles.imagePlaceholder}>
           {category && <SymbolView name={category.icon} size={56} tintColor={Colors.textSecondary} />}
         </ThemedView>
@@ -99,6 +138,14 @@ export default function MaterialDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  centeredContent: {
+    // flexGrow (not flex) is what actually centers content vertically inside a ScrollView's
+    // contentContainerStyle — it lets the container stretch to fill the viewport when content is
+    // shorter than the screen, while still scrolling normally if it's ever taller.
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   imagePlaceholder: {
     aspectRatio: 16 / 10,
     borderRadius: Spacing.four,

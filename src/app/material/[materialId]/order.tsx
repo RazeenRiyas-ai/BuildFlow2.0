@@ -1,7 +1,8 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useCallback } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
+import { ErrorBanner } from '@/components/error-banner';
 import { PrimaryButton } from '@/components/primary-button';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { ScreenContainer } from '@/components/screen-container';
@@ -11,6 +12,7 @@ import { ThemedView } from '@/components/themed-view';
 import { useOrderDraft } from '@/context/order-draft-context';
 import { useSites } from '@/context/sites-context';
 import { Spacing } from '@/constants/theme';
+import { useAsyncData } from '@/hooks/use-async-data';
 import { getMaterialById } from '@/services/materials-service';
 import { Material } from '@/types';
 import { formatCurrency } from '@/utils/format-currency';
@@ -20,13 +22,37 @@ export default function MaterialOrderScreen() {
   const { materialId } = useLocalSearchParams<{ materialId: string }>();
   const { draft, setQuantity, setSite } = useOrderDraft();
   const { sites } = useSites();
-  const [material, setMaterial] = useState<Material | null>(null);
 
-  useEffect(() => {
-    getMaterialById(materialId).then((result) => setMaterial(result ?? null));
-  }, [materialId]);
+  const fetchMaterial = useCallback(() => getMaterialById(materialId), [materialId]);
+  const { data: material, isLoading, error, refetch } = useAsyncData<Material | undefined>(fetchMaterial, undefined);
 
-  if (!material) return null;
+  if (isLoading && !material) {
+    return (
+      <ScreenContainer contentContainerStyle={styles.centeredContent}>
+        <ActivityIndicator />
+      </ScreenContainer>
+    );
+  }
+
+  if (error && !material) {
+    return (
+      <ScreenContainer>
+        <Stack.Screen options={{ title: 'Request Details' }} />
+        <ErrorBanner message={error} onRetry={refetch} />
+      </ScreenContainer>
+    );
+  }
+
+  if (!material) {
+    return (
+      <ScreenContainer>
+        <Stack.Screen options={{ title: 'Request Details' }} />
+        <ThemedText type="small" themeColor="textSecondary">
+          This material could not be found.
+        </ThemedText>
+      </ScreenContainer>
+    );
+  }
 
   const canReview = draft.quantity >= material.minOrderQuantity && !!draft.siteId;
 
@@ -34,6 +60,8 @@ export default function MaterialOrderScreen() {
     <>
       <Stack.Screen options={{ title: 'Request Details' }} />
       <ScreenContainer>
+        {error && <ErrorBanner message={error} onRetry={refetch} />}
+
         <ThemedView type="backgroundElement" style={styles.summaryCard}>
           <ThemedText type="smallBold" numberOfLines={1} style={styles.summaryName}>
             {material.name}
@@ -74,6 +102,11 @@ export default function MaterialOrderScreen() {
 }
 
 const styles = StyleSheet.create({
+  centeredContent: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   summaryCard: {
     padding: Spacing.three,
     borderRadius: Spacing.three,

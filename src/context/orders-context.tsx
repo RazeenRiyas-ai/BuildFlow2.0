@@ -1,40 +1,46 @@
-import { createContext, PropsWithChildren, use, useEffect, useMemo, useState } from 'react';
+import { createContext, PropsWithChildren, use, useCallback, useMemo } from 'react';
 
-import { getOrders, submitOrder as submitOrderService } from '@/services/orders-service';
+import { useAuth } from '@/context/auth-context';
+import { useAsyncData } from '@/hooks/use-async-data';
+import { cancelOrder as cancelOrderService, getOrders, submitOrder as submitOrderService } from '@/services/orders-service';
 import { Order, SubmitOrderInput } from '@/types';
 
 interface OrdersContextValue {
   orders: Order[];
   isLoading: boolean;
-  submitOrder: (input: SubmitOrderInput) => Promise<Order>;
-  getOrderById: (orderId: string) => Order | undefined;
+  error: string | null;
+  refetch: () => Promise<void>;
+  submitOrder: (input: SubmitOrderInput, idempotencyKey?: string) => Promise<Order>;
+  cancelOrder: (orderId: string) => Promise<void>;
 }
 
 const OrdersContext = createContext<OrdersContextValue | null>(null);
 
-/** Submitted material requests, persisted on-device so order history survives app restarts. */
+/** Contractor's material orders, fetched from the backend once authenticated. */
 export function OrdersProvider({ children }: PropsWithChildren) {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { user } = useAuth();
+  const isContractor = user?.role === 'contractor';
 
-  useEffect(() => {
-    getOrders()
-      .then(setOrders)
-      .finally(() => setIsLoading(false));
-  }, []);
+  const fetchOrders = useCallback(() => (isContractor ? getOrders() : Promise.resolve([])), [isContractor]);
+  const { data: orders, isLoading, error, refetch, setData: setOrders } = useAsyncData<Order[]>(fetchOrders, []);
 
   const value = useMemo<OrdersContextValue>(
     () => ({
       orders,
       isLoading,
-      submitOrder: async (input) => {
-        const newOrder = await submitOrderService(input);
+      error,
+      refetch,
+      submitOrder: async (input, idempotencyKey) => {
+        const newOrder = await submitOrderService(input, idempotencyKey);
         setOrders((prev) => [newOrder, ...prev]);
         return newOrder;
       },
-      getOrderById: (orderId) => orders.find((order) => order.id === orderId),
+      cancelOrder: async (orderId) => {
+        await cancelOrderService(orderId);
+        setOrders((prev) => prev.map((order) => (order.id === orderId ? { ...order, status: 'cancelled' } : order)));
+      },
     }),
-    [orders, isLoading],
+    [orders, isLoading, error, refetch, setOrders],
   );
 
   return <OrdersContext value={value}>{children}</OrdersContext>;

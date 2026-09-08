@@ -1,10 +1,15 @@
-import { CATEGORIES } from '@/data/categories';
+import { apiClient, ApiError } from '@/services/api-client';
 import { Category, CategoryId } from '@/types';
 
 export async function getCategories(): Promise<Category[]> {
-  return CATEGORIES;
+  return apiClient.get<Category[]>('/categories');
 }
 
 export async function getCategoryById(categoryId: CategoryId): Promise<Category | undefined> {
-  return CATEGORIES.find((category) => category.id === categoryId);
+  try {
+    return await apiClient.get<Category>('/categories/' + categoryId);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return undefined;
+    throw err;
+  }
 }

@@ -1,12 +1,14 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { StyleSheet, TextInput, View } from 'react-native';
 
+import { ErrorBanner } from '@/components/error-banner';
 import { PrimaryButton } from '@/components/primary-button';
 import { ScreenContainer } from '@/components/screen-container';
 import { ThemedText } from '@/components/themed-text';
 import { useSites } from '@/context/sites-context';
 import { Colors, Spacing } from '@/constants/theme';
+import { toUserMessage } from '@/utils/format-error';
 
 export default function AddSiteScreen() {
   const { addSite } = useSites();
@@ -14,14 +16,27 @@ export default function AddSiteScreen() {
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const savingRef = useRef(false);
 
   const canSave = label.trim().length > 0 && address.trim().length > 0;
 
   async function handleSave() {
     if (!canSave) return;
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
-    await addSite({ label: label.trim(), address: address.trim(), notes: notes.trim() || undefined });
-    router.back();
+    setError(null);
+    try {
+      await addSite({ label: label.trim(), address: address.trim(), notes: notes.trim() || undefined });
+      router.back();
+    } catch (err) {
+      // Fields are intentionally left as-is so the contractor can retry without retyping anything.
+      setError(toUserMessage(err));
+    } finally {
+      setSaving(false);
+      savingRef.current = false;
+    }
   }
 
   return (
@@ -35,6 +50,8 @@ export default function AddSiteScreen() {
         multiline
       />
       <Field label="Notes (optional)" value={notes} onChangeText={setNotes} placeholder="Gate code, landmark, etc." />
+
+      {error && <ErrorBanner message={error} onRetry={handleSave} />}
 
       <PrimaryButton label="Save Site" disabled={!canSave} loading={saving} onPress={handleSave} />
     </ScreenContainer>

@@ -1,32 +1,35 @@
-import { createContext, PropsWithChildren, use, useEffect, useMemo, useState } from 'react';
+import { createContext, PropsWithChildren, use, useCallback, useMemo } from 'react';
 
+import { useAuth } from '@/context/auth-context';
+import { useAsyncData } from '@/hooks/use-async-data';
 import { addSite as addSiteService, getSites } from '@/services/sites-service';
 import { ConstructionSite, NewConstructionSiteInput } from '@/types';
 
 interface SitesContextValue {
   sites: ConstructionSite[];
   isLoading: boolean;
+  error: string | null;
+  refetch: () => Promise<void>;
   addSite: (input: NewConstructionSiteInput) => Promise<ConstructionSite>;
   getSiteById: (siteId: string) => ConstructionSite | undefined;
 }
 
 const SitesContext = createContext<SitesContextValue | null>(null);
 
-/** Contractor's construction sites, persisted on-device so they survive app restarts. */
+/** Contractor's construction sites, fetched from the backend once authenticated. */
 export function SitesProvider({ children }: PropsWithChildren) {
-  const [sites, setSites] = useState<ConstructionSite[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { user } = useAuth();
+  const isContractor = user?.role === 'contractor';
 
-  useEffect(() => {
-    getSites()
-      .then(setSites)
-      .finally(() => setIsLoading(false));
-  }, []);
+  const fetchSites = useCallback(() => (isContractor ? getSites() : Promise.resolve([])), [isContractor]);
+  const { data: sites, isLoading, error, refetch, setData: setSites } = useAsyncData<ConstructionSite[]>(fetchSites, []);
 
   const value = useMemo<SitesContextValue>(
     () => ({
       sites,
       isLoading,
+      error,
+      refetch,
       addSite: async (input) => {
         const newSite = await addSiteService(input);
         setSites((prev) => [...prev, newSite]);
@@ -34,7 +37,7 @@ export function SitesProvider({ children }: PropsWithChildren) {
       },
       getSiteById: (siteId) => sites.find((site) => site.id === siteId),
     }),
-    [sites, isLoading],
+    [sites, isLoading, error, refetch, setSites],
   );
 
   return <SitesContext value={value}>{children}</SitesContext>;

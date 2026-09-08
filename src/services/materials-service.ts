@@ -1,25 +1,27 @@
-import { MATERIALS } from '@/data/materials';
+import { apiClient, ApiError } from '@/services/api-client';
 import { CategoryId, Material } from '@/types';
 
 export async function getMaterials(): Promise<Material[]> {
-  return MATERIALS;
+  return apiClient.get<Material[]>('/materials');
 }
 
 export async function getMaterialById(materialId: string): Promise<Material | undefined> {
-  return MATERIALS.find((material) => material.id === materialId);
+  try {
+    return await apiClient.get<Material>('/materials/' + materialId);
+  } catch (err) {
+    if (err instanceof ApiError && (err.status === 404 || err.status === 400)) return undefined;
+    throw err;
+  }
 }
 
 export async function getMaterialsByCategory(categoryId: CategoryId): Promise<Material[]> {
-  return MATERIALS.filter((material) => material.categoryId === categoryId);
+  return apiClient.get<Material[]>('/categories/' + categoryId + '/materials');
 }
 
 export async function searchMaterials(query: string): Promise<Material[]> {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return MATERIALS;
-  return MATERIALS.filter((material) => material.name.toLowerCase().includes(normalized));
+  return apiClient.get<Material[]>('/materials/search?q=' + encodeURIComponent(query.trim()));
 }
 
-export async function getMaterialsByIds(materialIds: string[]): Promise<Material[]> {
-  const idSet = new Set(materialIds);
-  return MATERIALS.filter((material) => idSet.has(material.id));
+export async function getFeaturedMaterials(): Promise<Material[]> {
+  return apiClient.get<Material[]>('/materials?featured=true');
 }

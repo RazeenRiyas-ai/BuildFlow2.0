@@ -6,7 +6,7 @@ import { ScreenContainer } from '@/components/screen-container';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors, Spacing } from '@/constants/theme';
-import { MOCK_CONTRACTOR } from '@/data/contractor';
+import { useAuth } from '@/context/auth-context';
 import { AppIcon } from '@/types';
 
 const PERSON_ICON: AppIcon = { ios: 'person.crop.circle.fill', android: 'account_circle', web: 'account_circle' };
@@ -14,21 +14,23 @@ const SITE_ICON: AppIcon = { ios: 'mappin.circle.fill', android: 'location_on', 
 const CHEVRON_ICON: AppIcon = { ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' };
 
 export default function AccountScreen() {
+  const { contractor, logout } = useAuth();
+
   return (
-    <ScreenContainer>
+    <ScreenContainer edges={['top', 'bottom']}>
       <ThemedText type="subtitle">Account</ThemedText>
 
       <ThemedView type="backgroundElement" style={styles.profileCard}>
         <SymbolView name={PERSON_ICON} size={48} tintColor={Colors.textSecondary} />
         <View style={styles.profileDetails}>
-          <ThemedText type="smallBold">{MOCK_CONTRACTOR.name}</ThemedText>
-          {MOCK_CONTRACTOR.companyName && (
+          <ThemedText type="smallBold">{contractor?.name}</ThemedText>
+          {contractor?.companyName && (
             <ThemedText type="small" themeColor="textSecondary">
-              {MOCK_CONTRACTOR.companyName}
+              {contractor.companyName}
             </ThemedText>
           )}
           <ThemedText type="small" themeColor="textSecondary">
-            {MOCK_CONTRACTOR.phone}
+            {contractor?.phone}
           </ThemedText>
         </View>
       </ThemedView>
@@ -42,6 +44,14 @@ export default function AccountScreen() {
             Manage Construction Sites
           </ThemedText>
           <SymbolView name={CHEVRON_ICON} size={14} tintColor={Colors.textSecondary} />
+        </ThemedView>
+      </Pressable>
+
+      <Pressable onPress={() => logout()} style={({ pressed }) => pressed && styles.pressed}>
+        <ThemedView type="backgroundElement" style={styles.linkRow}>
+          <ThemedText type="default" style={styles.linkLabel}>
+            Log Out
+          </ThemedText>
         </ThemedView>
       </Pressable>
     </ScreenContainer>

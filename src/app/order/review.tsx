@@ -1,7 +1,8 @@
 import { router, Stack } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { ErrorBanner } from '@/components/error-banner';
 import { OrderSummaryRow } from '@/components/order-summary-row';
 import { PrimaryButton } from '@/components/primary-button';
 import { ScreenContainer } from '@/components/screen-container';
@@ -13,7 +14,9 @@ import { useSites } from '@/context/sites-context';
 import { Spacing } from '@/constants/theme';
 import { getMaterialById } from '@/services/materials-service';
 import { Material } from '@/types';
+import { toUserMessage } from '@/utils/format-error';
 import { formatCurrency } from '@/utils/format-currency';
+import { generateIdempotencyKey } from '@/utils/generate-idempotency-key';
 import { pluralizeUnit } from '@/types/unit';
 
 export default function OrderReviewScreen() {
@@ -22,6 +25,14 @@ export default function OrderReviewScreen() {
   const { submitOrder } = useOrders();
   const [material, setMaterial] = useState<Material | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submittingRef = useRef(false);
+  // Generated once for this submission attempt (on the first tap of Submit) and reused for any
+  // retry of that same attempt — a network timeout followed by tapping Submit again must replay
+  // the original request server-side, not create a second order. Cleared after a successful
+  // submit so a genuinely new order (a new draft) gets its own fresh key. See
+  // server/docs/idempotency.md.
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (draft.materialId) getMaterialById(draft.materialId).then((result) => setMaterial(result ?? null));
@@ -35,10 +46,30 @@ export default function OrderReviewScreen() {
 
   async function handleSubmit() {
     if (!draft.materialId || !draft.siteId) return;
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
-    const order = await submitOrder({ materialId: draft.materialId, quantity: draft.quantity, siteId: draft.siteId });
-    reset();
-    router.replace({ pathname: '/order/[orderId]', params: { orderId: order.id } });
+    setError(null);
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = generateIdempotencyKey();
+    }
+    try {
+      const order = await submitOrder(
+        { materialId: draft.materialId, quantity: draft.quantity, siteId: draft.siteId },
+        idempotencyKeyRef.current,
+      );
+      idempotencyKeyRef.current = null;
+      reset();
+      router.replace({ pathname: '/order/[orderId]', params: { orderId: order.id } });
+    } catch (err) {
+      // Draft is intentionally left untouched here so the contractor can retry without re-entering
+      // anything — and idempotencyKeyRef is intentionally left set too, so that retry replays this
+      // same attempt server-side instead of starting a new one.
+      setError(toUserMessage(err));
+    } finally {
+      setSubmitting(false);
+      submittingRef.current = false;
+    }
   }
 
   return (
@@ -60,6 +91,8 @@ export default function OrderReviewScreen() {
         <ThemedText type="small" themeColor="textSecondary">
           This is an estimate based on listed pricing — the supplier will confirm final availability and cost.
         </ThemedText>
+
+        {error && <ErrorBanner message={error} onRetry={handleSubmit} />}
 
         <View style={styles.actions}>
           <PrimaryButton label="Submit Request" loading={submitting} onPress={handleSubmit} />

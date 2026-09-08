@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "build-flow-2.0",
-    "slug": "build-flow-2.0",
+    "slug": "build-flow-20",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -18,7 +18,8 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.buildflow2.x0"
     },
     "web": {
       "output": "static",
@@ -34,11 +35,20 @@
           "imageWidth": 76
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-secure-store",
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "bf4996e1-54b8-4633-b4ba-73d0938a94ea"
+      }
+    },
+    "owner": "razeenriyas"
   }
 }

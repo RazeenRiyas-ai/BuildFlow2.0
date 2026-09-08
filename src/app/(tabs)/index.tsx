@@ -1,39 +1,51 @@
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
+import { ErrorBanner } from '@/components/error-banner';
 import { MaterialCard } from '@/components/material-card';
 import { ScreenContainer } from '@/components/screen-container';
 import { SearchBar } from '@/components/search-bar';
 import { SectionHeader } from '@/components/section-header';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
-import { MOCK_CONTRACTOR } from '@/data/contractor';
-import { FEATURED_MATERIAL_IDS } from '@/data/materials';
+import { useAuth } from '@/context/auth-context';
+import { useAsyncData } from '@/hooks/use-async-data';
 import { getCategories } from '@/services/categories-service';
-import { getMaterialsByIds } from '@/services/materials-service';
+import { getFeaturedMaterials } from '@/services/materials-service';
 import { Category, Material } from '@/types';
 
-export default function HomeScreen() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [featuredMaterials, setFeaturedMaterials] = useState<Material[]>([]);
+interface HomeData {
+  categories: Category[];
+  featuredMaterials: Material[];
+}
 
-  useEffect(() => {
-    getCategories().then(setCategories);
-    getMaterialsByIds(FEATURED_MATERIAL_IDS).then(setFeaturedMaterials);
+const EMPTY_HOME_DATA: HomeData = { categories: [], featuredMaterials: [] };
+
+export default function HomeScreen() {
+  const { contractor } = useAuth();
+
+  const fetchHomeData = useCallback(async (): Promise<HomeData> => {
+    const [categories, featuredMaterials] = await Promise.all([getCategories(), getFeaturedMaterials()]);
+    return { categories, featuredMaterials };
   }, []);
+
+  const { data, error, refetch } = useAsyncData<HomeData>(fetchHomeData, EMPTY_HOME_DATA);
+  const { categories, featuredMaterials } = data;
 
   const categoryById = new Map(categories.map((category) => [category.id, category]));
 
   return (
-    <ScreenContainer>
+    <ScreenContainer edges={['top', 'bottom']}>
       <View style={styles.header}>
         <ThemedText type="small" themeColor="textSecondary">
           Welcome back,
         </ThemedText>
-        <ThemedText type="subtitle">{MOCK_CONTRACTOR.name.split(' ')[0]}</ThemedText>
+        <ThemedText type="subtitle">{contractor?.name.split(' ')[0] ?? '...'}</ThemedText>
       </View>
+
+      {error && <ErrorBanner message={error} onRetry={refetch} />}
 
       <SearchBar variant="link" placeholder="Search materials" onPress={() => router.push('/search')} />
 

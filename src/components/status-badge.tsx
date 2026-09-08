@@ -14,7 +14,10 @@ const STOCK_STATUS_MAP: Record<StockStatus, { label: string; tone: Tone }> = {
 
 const ORDER_STATUS_MAP: Record<OrderStatus, { label: string; tone: Tone }> = {
   requested: { label: 'Requested', tone: 'caution' },
-  confirmed: { label: 'Confirmed', tone: 'positive' },
+  supplier_contacted: { label: 'Contacting Supplier', tone: 'caution' },
+  supplier_confirmed: { label: 'Supplier Confirmed', tone: 'positive' },
+  supplier_rejected: { label: 'Finding Supplier', tone: 'caution' },
+  driver_assigned: { label: 'Driver Assigned', tone: 'positive' },
   out_for_delivery: { label: 'Out for Delivery', tone: 'positive' },
   delivered: { label: 'Delivered', tone: 'positive' },
   cancelled: { label: 'Cancelled', tone: 'negative' },

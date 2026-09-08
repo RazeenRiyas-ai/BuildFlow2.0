@@ -1,44 +1,26 @@
-import { getMaterialById } from '@/services/materials-service';
-import { readJson, writeJson } from '@/services/kv-store';
-import { getSiteById } from '@/services/sites-service';
-import { Order, SubmitOrderInput } from '@/types';
-
-const STORAGE_KEY = 'buildflow.orders';
+import { apiClient, ApiError } from '@/services/api-client';
+import { Order, OrderDetail, SubmitOrderInput } from '@/types';
 
 export async function getOrders(): Promise<Order[]> {
-  return readJson<Order[]>(STORAGE_KEY, []);
+  return apiClient.get<Order[]>('/orders');
 }
 
-export async function getOrderById(orderId: string): Promise<Order | undefined> {
-  const orders = await getOrders();
-  return orders.find((order) => order.id === orderId);
+export async function getOrderById(orderId: string): Promise<OrderDetail | undefined> {
+  try {
+    return await apiClient.get<OrderDetail>(`/orders/${orderId}`);
+  } catch (err) {
+    if (err instanceof ApiError && (err.status === 404 || err.status === 400)) return undefined;
+    throw err;
+  }
 }
 
-export async function submitOrder(input: SubmitOrderInput): Promise<Order> {
-  const [material, site] = await Promise.all([getMaterialById(input.materialId), getSiteById(input.siteId)]);
-  if (!material) throw new Error(`Unknown material: ${input.materialId}`);
-  if (!site) throw new Error(`Unknown construction site: ${input.siteId}`);
+/** `idempotencyKey` is optional and, when provided, must be generated ONCE per logical submission
+ * attempt by the caller (see src/app/order/review.tsx) and reused across any retry of that same
+ * attempt — never regenerated per network call. See server/docs/idempotency.md. */
+export async function submitOrder(input: SubmitOrderInput, idempotencyKey?: string): Promise<Order> {
+  return apiClient.post<Order>('/orders', input, idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined);
+}
 
-  const newOrder: Order = {
-    id: `order-${Date.now()}`,
-    items: [
-      {
-        materialId: material.id,
-        materialName: material.name,
-        unit: material.unit,
-        pricePerUnit: material.pricePerUnit,
-        quantity: input.quantity,
-      },
-    ],
-    siteId: site.id,
-    siteLabel: site.label,
-    siteAddress: site.address,
-    status: 'requested',
-    createdAt: new Date().toISOString(),
-    estimatedDeliveryDays: material.estimatedDeliveryDays,
-  };
-
-  const orders = await getOrders();
-  await writeJson(STORAGE_KEY, [newOrder, ...orders]);
-  return newOrder;
+export async function cancelOrder(orderId: string): Promise<void> {
+  await apiClient.patch<void>(`/orders/${orderId}/cancel`);
 }

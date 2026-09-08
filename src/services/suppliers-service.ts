@@ -1,6 +1,11 @@
-import { SUPPLIERS } from '@/data/suppliers';
+import { apiClient, ApiError } from '@/services/api-client';
 import { Supplier } from '@/types';
 
 export async function getSupplierById(supplierId: string): Promise<Supplier | undefined> {
-  return SUPPLIERS.find((supplier) => supplier.id === supplierId);
+  try {
+    return await apiClient.get<Supplier>('/suppliers/' + supplierId);
+  } catch (err) {
+    if (err instanceof ApiError && (err.status === 404 || err.status === 400)) return undefined;
+    throw err;
+  }
 }

@@ -58,9 +58,14 @@ export default function HqDashboardScreen() {
       <Stack.Screen
         options={{
           headerRight: () => (
-            <Pressable onPress={() => logout()}>
-              <ThemedText type="link">Log Out</ThemedText>
-            </Pressable>
+            <View style={styles.headerActions}>
+              <Pressable onPress={() => router.push('/(hq)/materials')}>
+                <ThemedText type="link">Materials</ThemedText>
+              </Pressable>
+              <Pressable onPress={() => logout()}>
+                <ThemedText type="link">Log Out</ThemedText>
+              </Pressable>
+            </View>
           ),
         }}
       />
@@ -108,6 +113,10 @@ export default function HqDashboardScreen() {
 }
 
 const styles = StyleSheet.create({
+  headerActions: {
+    flexDirection: 'row',
+    gap: Spacing.three,
+  },
   attentionBanner: {
     flexDirection: 'row',
     alignItems: 'center',

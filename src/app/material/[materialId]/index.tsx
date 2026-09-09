@@ -1,14 +1,14 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { useCallback } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ErrorBanner } from '@/components/error-banner';
+import { MaterialImage } from '@/components/material-image';
 import { PrimaryButton } from '@/components/primary-button';
 import { ScreenContainer } from '@/components/screen-container';
 import { StatusBadge } from '@/components/status-badge';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { useOrderDraft } from '@/context/order-draft-context';
 import { Colors, Spacing } from '@/constants/theme';
 import { useAsyncData } from '@/hooks/use-async-data';
@@ -33,6 +33,7 @@ const EMPTY_MATERIAL_DETAIL: MaterialDetailData = { material: null, category: nu
 export default function MaterialDetailScreen() {
   const { materialId } = useLocalSearchParams<{ materialId: string }>();
   const { startDraft } = useOrderDraft();
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
 
   const fetchMaterialDetail = useCallback(async (): Promise<MaterialDetailData> => {
     const material = await getMaterialById(materialId);
@@ -84,9 +85,26 @@ export default function MaterialDetailScreen() {
       <ScreenContainer>
         {error && <ErrorBanner message={error} onRetry={refetch} />}
 
-        <ThemedView type="backgroundElement" style={styles.imagePlaceholder}>
-          {category && <SymbolView name={category.icon} size={56} tintColor={Colors.textSecondary} />}
-        </ThemedView>
+        <MaterialImage
+          imageUrl={(material.photos?.[selectedPhotoIndex] ?? material.photos?.[0])?.url ?? material.imageUrl}
+          fallbackIcon={category?.icon ?? { ios: 'shippingbox.fill', android: 'inventory_2', web: 'inventory_2' }}
+          iconSize={56}
+          style={styles.imagePlaceholder}
+        />
+
+        {material.photos && material.photos.length > 1 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.thumbnailRow}>
+            {material.photos.map((photo, index) => (
+              <Pressable
+                key={photo.id}
+                accessibilityRole="button"
+                onPress={() => setSelectedPhotoIndex(index)}
+                style={[styles.thumbnailWrapper, index === selectedPhotoIndex && styles.thumbnailSelected]}>
+                <MaterialImage imageUrl={photo.url} fallbackIcon={category?.icon ?? { ios: 'photo', android: 'image', web: 'image' }} style={styles.thumbnail} />
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
 
         <View style={styles.titleBlock}>
           {category && (
@@ -152,6 +170,24 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  thumbnailRow: {
+    gap: Spacing.two,
+  },
+  thumbnailWrapper: {
+    width: 56,
+    height: 56,
+    borderRadius: Spacing.two,
+    borderCurve: 'continuous',
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    borderColor: 'transparent',
+  },
+  thumbnailSelected: {
+    borderColor: Colors.text,
+  },
+  thumbnail: {
+    flex: 1,
+    borderRadius: Spacing.two - 2,
   },
   titleBlock: {
     gap: Spacing.two,

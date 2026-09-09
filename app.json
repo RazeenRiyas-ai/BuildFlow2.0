@@ -37,7 +37,13 @@
       ],
       "expo-sqlite",
       "expo-secure-store",
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "BuildFlow HQ uses your photo library to attach product photos to materials."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

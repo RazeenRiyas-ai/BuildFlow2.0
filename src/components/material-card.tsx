@@ -1,10 +1,9 @@
-import { SymbolView } from 'expo-symbols';
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { MaterialImage } from '@/components/material-image';
 import { StatusBadge } from '@/components/status-badge';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Colors, Spacing } from '@/constants/theme';
+import { Spacing } from '@/constants/theme';
 import { Category, Material } from '@/types';
 import { formatCurrency } from '@/utils/format-currency';
 import { pluralizeUnit } from '@/types/unit';
@@ -22,9 +21,7 @@ export function MaterialCard({ material, category, variant = 'grid', onPress }: 
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [variant === 'rail' ? styles.railCard : styles.gridCard, pressed && styles.pressed]}>
-      <ThemedView type="backgroundElement" style={styles.imagePlaceholder}>
-        <SymbolView name={category.icon} size={32} tintColor={Colors.textSecondary} />
-      </ThemedView>
+      <MaterialImage imageUrl={material.imageUrl} fallbackIcon={category.icon} style={styles.imagePlaceholder} />
 
       <View style={styles.details}>
         <ThemedText type="small" numberOfLines={2}>

@@ -5,6 +5,9 @@ export default function HqLayout() {
     <Stack screenOptions={{ headerShadowVisible: false }}>
       <Stack.Screen name="index" options={{ title: 'HQ Queue' }} />
       <Stack.Screen name="orders/[orderId]" options={{ title: 'Order Detail' }} />
+      <Stack.Screen name="materials/index" options={{ title: 'Materials' }} />
+      <Stack.Screen name="materials/new" options={{ title: 'New Material' }} />
+      <Stack.Screen name="materials/[materialId]/index" options={{ title: 'Material' }} />
     </Stack>
   );
 }

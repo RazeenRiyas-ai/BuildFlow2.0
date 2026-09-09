@@ -43,4 +43,10 @@ export const globalRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   handler,
+  // Vitest always sets process.env.VITEST — never true outside a test run — and the two
+  // auth-specific limiters above (the actual subject of auth-rate-limit.test.ts) are untouched by
+  // this. Without it, a single thorough test file exercising many endpoints back-to-back (e.g.
+  // hq-materials.test.ts's photo-upload coverage) trips this blanket per-process limit purely from
+  // legitimate test volume, not from anything resembling the abuse this limiter exists to blunt.
+  skip: () => process.env.VITEST === 'true',
 });

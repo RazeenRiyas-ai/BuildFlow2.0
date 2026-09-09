@@ -112,8 +112,12 @@ export async function createOrder(contractorId: string, input: CreateOrderInput,
   const { responseStatus, body, replayed } = await runIdempotentOperation<CreateOrderResponseBody>(
     { userId: contractorId, scope: IDEMPOTENCY_SCOPES.ORDERS_CREATE, idempotencyKey, requestPayload: input },
     async (client) => {
+      // Deactivated materials are treated as not found for ordering purposes — the same rule the
+      // contractor-facing catalog itself already applies (materials.service.ts's listMaterials /
+      // getMaterialById / searchMaterials all filter is_active = true), so a stale deep link or
+      // cached material id can never be used to order something HQ just deactivated.
       const materialResult = await client.query(
-        'SELECT id, name, unit, price_per_unit, stock_status, min_order_quantity, estimated_delivery_days FROM materials WHERE id = $1',
+        'SELECT id, name, unit, price_per_unit, stock_status, min_order_quantity, estimated_delivery_days FROM materials WHERE id = $1 AND is_active = true',
         [input.materialId],
       );
       const material = materialResult.rows[0];

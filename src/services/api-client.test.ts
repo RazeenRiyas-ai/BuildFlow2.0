@@ -203,6 +203,30 @@ describe('api-client 401 → refresh → retry', () => {
   });
 });
 
+describe('api-client.upload (multipart)', () => {
+  test('sends the FormData body as-is with no Content-Type header, letting fetch set the multipart boundary', async () => {
+    await setSession({ accessToken: 'old-access', refreshToken: 'old-refresh' });
+
+    let capturedBody: unknown;
+    let capturedHeaders: Record<string, string> | undefined;
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      capturedBody = init?.body;
+      capturedHeaders = init?.headers as Record<string, string> | undefined;
+      return jsonResponse(201, { id: 'photo-1' });
+    }) as typeof fetch;
+
+    const formData = new FormData();
+    formData.append('photo', 'fake-file-content');
+
+    const result = await apiClient.upload<{ id: string }>('/hq/materials/m1/photos', formData);
+
+    assert.deepEqual(result, { id: 'photo-1' });
+    assert.ok(capturedBody instanceof FormData, 'body must be passed through as FormData, not JSON-stringified');
+    assert.equal(capturedHeaders?.['Content-Type'], undefined, 'Content-Type must be left unset for a multipart body');
+    assert.equal(capturedHeaders?.Authorization, 'Bearer old-access');
+  });
+});
+
 describe('api-client request timeout', () => {
   test('a request to a host that never responds eventually rejects instead of hanging forever', async () => {
     await setSession({ accessToken: 'old-access', refreshToken: 'old-refresh' });

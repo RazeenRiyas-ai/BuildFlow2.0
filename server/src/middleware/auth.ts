@@ -24,6 +24,31 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   }
 }
 
+/**
+ * Like requireAuth, but a missing/invalid token is not an error — it just leaves req.user unset.
+ * Used only where a route has a real anonymous-access path (contractor material-photo files must
+ * stay viewable without a session) but still wants to recognize an authenticated HQ caller when one
+ * is present, so HQ can preview photos on materials that are deactivated (and therefore hidden from
+ * the anonymous/contractor-facing path). Never use this in place of requireAuth for anything that
+ * needs an authorization decision to actually hold — it only ever adds identity, never enforces it.
+ */
+export function optionalAuth(req: Request, _res: Response, next: NextFunction) {
+  const header = req.headers.authorization;
+  if (!header?.startsWith('Bearer ')) {
+    next();
+    return;
+  }
+
+  const token = header.slice('Bearer '.length);
+  try {
+    req.user = jwt.verify(token, env.JWT_ACCESS_SECRET) as AccessTokenPayload;
+  } catch {
+    // Silently ignored — an anonymous caller with a garbage Authorization header is treated the
+    // same as one with none at all, not rejected.
+  }
+  next();
+}
+
 export function requireRole(...roles: UserRole[]) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user || !roles.includes(req.user.role)) {

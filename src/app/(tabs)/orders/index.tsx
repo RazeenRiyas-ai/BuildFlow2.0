@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { EmptyState } from '@/components/empty-state';
 import { ErrorBanner } from '@/components/error-banner';
+import { NotificationOptInBanner } from '@/components/notification-opt-in-banner';
 import { ScreenContainer } from '@/components/screen-container';
 import { StatusBadge } from '@/components/status-badge';
 import { ThemedText } from '@/components/themed-text';
@@ -61,6 +62,7 @@ export default function OrdersScreen() {
     <ScreenContainer edges={['top', 'bottom']}>
       <ThemedText type="subtitle">Orders</ThemedText>
       {error && <ErrorBanner message={error} onRetry={refetch} />}
+      <NotificationOptInBanner />
       <View style={styles.list}>
         {orders.map((order) => {
           const item = order.items[0];

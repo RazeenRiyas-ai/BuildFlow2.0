@@ -12,6 +12,12 @@ const projectRoot = path.resolve(import.meta.dirname, '..');
 const MOCK_SECURE_STORAGE_URL = 'buildflow-test:secure-storage';
 
 const MOCK_SOCKET_IO_CLIENT_URL = pathToFileURL(path.join(projectRoot, 'scripts', 'test-mocks', 'socket-io-client.mjs')).href;
+// react-native/expo-notifications/expo-constants can't be imported under plain Node at all (they do
+// native-bridge/native-module setup at module load time) — every file reaching them needs these
+// minimal test doubles, the same way socket.io-client already has one above.
+const MOCK_REACT_NATIVE_URL = pathToFileURL(path.join(projectRoot, 'scripts', 'test-mocks', 'react-native.mjs')).href;
+const MOCK_EXPO_NOTIFICATIONS_URL = pathToFileURL(path.join(projectRoot, 'scripts', 'test-mocks', 'expo-notifications.mjs')).href;
+const MOCK_EXPO_CONSTANTS_URL = pathToFileURL(path.join(projectRoot, 'scripts', 'test-mocks', 'expo-constants.mjs')).href;
 
 export async function resolve(specifier, context, nextResolve) {
   if (specifier === '@/services/secure-storage') {
@@ -19,6 +25,15 @@ export async function resolve(specifier, context, nextResolve) {
   }
   if (specifier === 'socket.io-client') {
     return { url: MOCK_SOCKET_IO_CLIENT_URL, shortCircuit: true };
+  }
+  if (specifier === 'react-native') {
+    return { url: MOCK_REACT_NATIVE_URL, shortCircuit: true };
+  }
+  if (specifier === 'expo-notifications') {
+    return { url: MOCK_EXPO_NOTIFICATIONS_URL, shortCircuit: true };
+  }
+  if (specifier === 'expo-constants') {
+    return { url: MOCK_EXPO_CONSTANTS_URL, shortCircuit: true };
   }
   if (specifier.startsWith('@/')) {
     const mapped = pathToFileURL(path.join(projectRoot, 'src', specifier.slice(2)) + '.ts').href;

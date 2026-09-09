@@ -1,7 +1,8 @@
-import { createContext, PropsWithChildren, use, useEffect, useMemo, useState } from 'react';
+import { createContext, PropsWithChildren, use, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 
 import { apiClient } from '@/services/api-client';
+import { registerPushTokenIfPermissionGranted, unregisterCurrentPushToken } from '@/services/push-service';
 import { connectRealtime, disconnectRealtime } from '@/services/realtime-client';
 import {
   decodeJwtPayload,
@@ -52,6 +53,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
   async function applyUserForRole(user: AuthUser) {
     if (user.role === 'contractor') {
       await loadContractorProfile();
+      // Never prompts — only (re-)registers if permission was already granted in a previous
+      // session. Covers fresh login, register, cold-launch session restore, and app restart, all
+      // of which funnel through this one function. Fire-and-forget: a slow/failing registration
+      // must never delay the auth flow itself, matching push-service.ts's own never-throws
+      // contract for this specific function.
+      registerPushTokenIfPermissionGranted();
     } else {
       setUser(user);
     }
@@ -107,6 +114,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
     })();
   }, []);
 
+  // Kept in sync below so the mount-once AppState effect can read the current user without being
+  // in its own dependency array (re-subscribing an AppState listener on every login/logout would
+  // be wasteful and isn't needed — only the *current* value at the moment a foreground event fires
+  // actually matters).
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
   // Runs exactly once for this provider's whole lifetime ([] deps) — re-renders never re-subscribe,
   // so there is only ever one AppState listener regardless of how often AuthProvider re-renders.
   // On every genuine background→foreground transition, asks session-manager whether the stored
@@ -114,6 +130,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
   // itself is the single-flight refreshSession() underneath, so this can never race a REST 401 or
   // a socket reconnect into firing a second network call. No timers or polling while backgrounded —
   // this is purely event-driven off AppState's own 'change' event.
+  //
+  // Also the "token changed since last launch" and "permission granted from OS Settings after an
+  // in-app denial" recovery path for contractor push: registerPushTokenIfPermissionGranted() never
+  // prompts, so this adds no interruption — it only silently re-syncs an already-granted
+  // permission's current token.
   useEffect(() => {
     let previousAppState = AppState.currentState;
 
@@ -128,6 +149,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
         // actual request or reconnect happens. Definitive: onSessionEnded (subscribed above) has
         // already transitioned the app to logged-out state. Nothing further to do here either way.
       });
+
+      if (userRef.current?.role === 'contractor') {
+        registerPushTokenIfPermissionGranted();
+      }
     });
 
     return () => subscription.remove();
@@ -149,6 +174,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
         await applyUserForRole(result.user);
       },
       logout: async () => {
+        // Awaited (bounded by the same fetchWithTimeout ceiling every other API call already has)
+        // and sequenced strictly before logoutSession() clears the stored access token — the
+        // unregister call needs that token to authenticate. Never throws (see push-service.ts), so
+        // this can never prevent logout from completing. Unregisters only the current device's own
+        // token, read from local storage — never another device belonging to the same user, and
+        // never an ambient "delete everything for this user" operation.
+        await unregisterCurrentPushToken();
         disconnectRealtime();
         await logoutSession();
         setUser(null);

@@ -1,7 +1,7 @@
 import { pool, withTransaction } from '../../config/db';
 import { NotFoundError, ConflictError, AppError } from '../../utils/app-error';
 import { ErrorCode } from '../../errors/error-codes';
-import { sendPushToHqDevices } from '../push/push.service';
+import { sendPushToHqDevices, sendOrderStatusPushToContractor } from '../push/push.service';
 import { emitOrderStatusChanged } from '../../realtime/order-events';
 import { logger } from '../../utils/logger';
 import { runIdempotentOperation, IDEMPOTENCY_SCOPES } from '../../idempotency/idempotency';
@@ -203,11 +203,28 @@ export async function getOrderForContractor(contractorId: string, orderId: strin
   return { ...order, items: itemsResult.rows, history: historyResult.rows };
 }
 
+/**
+ * Looks up the contractor and the order's (single, MVP) material name, then fires the push —
+ * entirely after the caller's transaction has already committed, and never awaited by the caller
+ * (see its one call site in transitionOrderStatus below): a slow or failing lookup/push here can
+ * never delay or fail the HTTP response for the status-change request that triggered it.
+ * sendOrderStatusPushToContractor itself already never throws; this wrapper only exists to isolate
+ * the (rare, harmless-to-lose) case where the order_items lookup itself fails.
+ */
+async function notifyContractorOfStatusChange(orderId: string, contractorId: string, toStatus: OrderStatus): Promise<void> {
+  const itemResult = await pool.query<{ material_name: string }>('SELECT material_name FROM order_items WHERE order_id = $1 LIMIT 1', [
+    orderId,
+  ]);
+  const materialName = itemResult.rows[0]?.material_name ?? 'your order';
+  await sendOrderStatusPushToContractor({ orderId, contractorId, status: toStatus, materialName });
+}
+
 export async function transitionOrderStatus(orderId: string, toStatus: OrderStatus, actorUserId: string, note?: string) {
-  const fromStatus = await withTransaction(async (client) => {
-    const current = await client.query('SELECT status FROM orders WHERE id = $1 FOR UPDATE', [orderId]);
+  const { fromStatus, contractorId } = await withTransaction(async (client) => {
+    const current = await client.query('SELECT status, contractor_id FROM orders WHERE id = $1 FOR UPDATE', [orderId]);
     if (!current.rows[0]) throw new NotFoundError('Order not found', ErrorCode.ORDER_NOT_FOUND);
     const fromStatus: OrderStatus = current.rows[0].status;
+    const contractorId: string = current.rows[0].contractor_id;
     const allowed = ORDER_TRANSITIONS[fromStatus] ?? [];
     if (!allowed.includes(toStatus)) {
       throw new ConflictError('Cannot transition order from ' + fromStatus + ' to ' + toStatus, ErrorCode.ORDER_INVALID_STATUS_TRANSITION);
@@ -217,12 +234,19 @@ export async function transitionOrderStatus(orderId: string, toStatus: OrderStat
       'INSERT INTO order_status_history (order_id, type, from_status, to_status, actor_user_id, note) VALUES ($1, $2, $3, $4, $5, $6)',
       [orderId, 'status_change', fromStatus, toStatus, actorUserId, note ?? null],
     );
-    return fromStatus;
+    return { fromStatus, contractorId };
   });
 
   // Only reached if the transaction above committed successfully — withTransaction rejects
-  // (after rolling back) on any error, so a failed/invalid transition never emits.
+  // (after rolling back) on any error, so a failed/invalid transition never emits or pushes. A
+  // retried/duplicate request for the same target status is already rejected above (transitioning
+  // *into* a status you're already in is never in ORDER_TRANSITIONS' allowed list for that status),
+  // so this single call site can never double-fire for the same logical event — no separate
+  // dedup bookkeeping needed for either the socket emit or the push below.
   emitOrderStatusChanged(orderId, fromStatus, toStatus);
+  notifyContractorOfStatusChange(orderId, contractorId, toStatus).catch((err) =>
+    logger.error('notifyContractorOfStatusChange failed', err, { orderId, toStatus }),
+  );
 
   return toStatus;
 }

@@ -1,12 +1,13 @@
 import { DefaultTheme, router, Stack, ThemeProvider } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 import { AuthProvider, useAuth } from '@/context/auth-context';
 import { OrderDraftProvider } from '@/context/order-draft-context';
 import { OrdersProvider } from '@/context/orders-context';
 import { SitesProvider } from '@/context/sites-context';
+import { extractOrderIdFromNotificationData, resolveOrderNotificationRoute } from '@/utils/notification-routing';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -22,17 +23,45 @@ function SplashScreenController() {
   return null;
 }
 
-/** Deep-links a tapped push notification straight to the relevant HQ order, whether the app was
- * foregrounded, backgrounded, or cold-started. Harmless (never fires) for contractors, who never
- * register a push token. */
+/**
+ * Deep-links a tapped push notification straight to the relevant order — the contractor's own
+ * order detail (`/order/[orderId]`) for a contractor, HQ's order detail (`/(hq)/orders/[orderId]`)
+ * for HQ staff/admin — whether the app was foregrounded, backgrounded, or fully closed.
+ *
+ * Handles cold launch explicitly: `addNotificationResponseReceivedListener` below only fires for a
+ * response received *while it's already registered* — the tap that actually launched the app from
+ * fully closed happened before this component (and its listener) ever mounted, so that one specific
+ * case has to be read once via `getLastNotificationResponseAsync()` on mount instead. Immediately
+ * cleared afterward so a later, unrelated cold start doesn't re-navigate to the same stale order.
+ *
+ * Deliberately routes on `data.orderId`/role alone, never on any other notification content — the
+ * destination screen (order/[orderId].tsx or (hq)/orders/[orderId].tsx) always refetches from the
+ * normal authenticated REST endpoint, which is the only source of truth and the only place
+ * authorization is actually enforced (a contractor can never be routed into another contractor's
+ * order data merely because a notification claimed that id — the order-detail endpoint itself
+ * re-checks ownership).
+ */
 function NotificationTapController() {
+  const { user } = useAuth();
+  const userRef = useRef(user);
   useEffect(() => {
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      const orderId = response.notification.request.content.data?.orderId;
-      if (typeof orderId === 'string') {
-        router.push({ pathname: '/(hq)/orders/[orderId]', params: { orderId } });
-      }
+    userRef.current = user;
+  }, [user]);
+
+  useEffect(() => {
+    function handleResponse(response: Notifications.NotificationResponse) {
+      const orderId = extractOrderIdFromNotificationData(response.notification.request.content.data);
+      if (!orderId) return;
+      router.push(resolveOrderNotificationRoute(userRef.current?.role, orderId));
+    }
+
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (!response) return;
+      handleResponse(response);
+      Notifications.clearLastNotificationResponseAsync();
     });
+
+    const subscription = Notifications.addNotificationResponseReceivedListener(handleResponse);
     return () => subscription.remove();
   }, []);
 

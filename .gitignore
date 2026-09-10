@@ -41,3 +41,12 @@ example
 # generated native folders
 /ios
 /android
+
+# Firebase (FCM) — client config file, kept local-only for now (Firebase's own docs say it's safe to
+# commit since it only contains public-facing identifiers, but this project isn't sharing native
+# builds across a team yet, so default to not committing it). The FCM V1 service-account private key
+# must never be committed regardless of filename — it's uploaded straight to EAS via `eas credentials`,
+# never stored in this repo.
+/google-services.json
+*firebase-adminsdk*.json
+*service-account*.json

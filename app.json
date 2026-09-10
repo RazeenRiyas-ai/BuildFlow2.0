@@ -19,7 +19,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.buildflow2.x0"
+      "package": "com.anonymous.buildflow2.x0",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",

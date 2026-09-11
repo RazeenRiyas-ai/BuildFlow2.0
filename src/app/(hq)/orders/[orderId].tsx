@@ -108,7 +108,6 @@ export default function HqOrderDetailScreen() {
     );
   }
 
-  const item = order.items[0];
   const nextStatuses = ORDER_TRANSITIONS[order.status].filter((status) => status !== 'cancelled');
   const canCancel = ORDER_TRANSITIONS[order.status].includes('cancelled');
   /** These four gates mirror the same status sets the backend now authoritatively enforces (see
@@ -139,8 +138,13 @@ export default function HqOrderDetailScreen() {
       )}
 
       <ThemedView type="backgroundElement" style={styles.card}>
-        <OrderSummaryRow label="Material" value={item.materialName} />
-        <OrderSummaryRow label="Quantity" value={`${item.quantity} ${pluralizeUnit(item.unit, item.quantity)}`} />
+        {order.items.map((orderItem, index) => (
+          <OrderSummaryRow
+            key={`${orderItem.materialId}-${index}`}
+            label={orderItem.materialName}
+            value={`${orderItem.quantity} ${pluralizeUnit(orderItem.unit, orderItem.quantity)}`}
+          />
+        ))}
         <OrderSummaryRow label="Delivery Site" value={order.siteLabel} subvalue={order.siteAddress} />
         <OrderSummaryRow label="Estimated Delivery" value={order.estimatedDeliveryDays} />
         {order.contractorNote && <OrderSummaryRow label="Contractor Note" value={order.contractorNote} />}

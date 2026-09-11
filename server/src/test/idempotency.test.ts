@@ -84,7 +84,7 @@ describe('POST /orders — durable idempotency', () => {
       .post('/orders')
       .set('Authorization', `Bearer ${tokenA}`)
       .set(IDEMPOTENCY_HEADER, key)
-      .send({ materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity });
+      .send({ siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] });
 
     expect(res.status).toBe(201);
     expect(await orderCount(siteAId)).toBe(before + 1);
@@ -99,7 +99,7 @@ describe('POST /orders — durable idempotency', () => {
 
   it('Test 2 — the same request replayed with the same key returns the same response and creates no second order', async () => {
     const key = `test2-${Date.now()}`;
-    const payload = { materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity };
+    const payload = { siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] };
 
     const first = await request(app).post('/orders').set('Authorization', `Bearer ${tokenA}`).set(IDEMPOTENCY_HEADER, key).send(payload);
     expect(first.status).toBe(201);
@@ -118,7 +118,7 @@ describe('POST /orders — durable idempotency', () => {
       .post('/orders')
       .set('Authorization', `Bearer ${tokenA}`)
       .set(IDEMPOTENCY_HEADER, key)
-      .send({ materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity });
+      .send({ siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] });
     expect(first.status).toBe(201);
 
     const before = await orderCount(siteAId);
@@ -126,7 +126,7 @@ describe('POST /orders — durable idempotency', () => {
       .post('/orders')
       .set('Authorization', `Bearer ${tokenA}`)
       .set(IDEMPOTENCY_HEADER, key)
-      .send({ materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity + 1 });
+      .send({ siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity + 1 }] });
 
     expect(second.status).toBe(409);
     expect(second.body.code).toBe(ErrorCode.IDEMPOTENCY_KEY_REUSED);
@@ -141,12 +141,12 @@ describe('POST /orders — durable idempotency', () => {
       .post('/orders')
       .set('Authorization', `Bearer ${tokenA}`)
       .set(IDEMPOTENCY_HEADER, sharedKey)
-      .send({ materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity });
+      .send({ siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] });
     const resB = await request(app)
       .post('/orders')
       .set('Authorization', `Bearer ${tokenB}`)
       .set(IDEMPOTENCY_HEADER, sharedKey)
-      .send({ materialId: inStockMaterialId, siteId: siteBId, quantity: minOrderQuantity });
+      .send({ siteId: siteBId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] });
 
     expect(resA.status).toBe(201);
     expect(resB.status).toBe(201);
@@ -155,7 +155,7 @@ describe('POST /orders — durable idempotency', () => {
 
   it('Test 5 — two concurrent identical requests with the same key create exactly one order', async () => {
     const key = `concurrent-${Date.now()}`;
-    const payload = { materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity };
+    const payload = { siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] };
     const before = await orderCount(siteAId);
 
     const [resA, resB] = await Promise.all([
@@ -170,7 +170,7 @@ describe('POST /orders — durable idempotency', () => {
 
   it('Test 5b — a higher-concurrency burst (10 simultaneous identical requests) still creates exactly one order', async () => {
     const key = `concurrent-burst-${Date.now()}`;
-    const payload = { materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity };
+    const payload = { siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] };
     const before = await orderCount(siteAId);
 
     const responses = await Promise.all(
@@ -192,7 +192,7 @@ describe('POST /orders — durable idempotency', () => {
       .post('/orders')
       .set('Authorization', `Bearer ${tokenA}`)
       .set(IDEMPOTENCY_HEADER, key)
-      .send({ materialId: inStockMaterialId, siteId: siteAId, quantity: 0.1 });
+      .send({ siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: 0.1 }] });
     expect(failing.status).toBe(400);
 
     // Test 12 (folded in here): the failed attempt must not have been persisted as a completed —
@@ -208,7 +208,7 @@ describe('POST /orders — durable idempotency', () => {
       .post('/orders')
       .set('Authorization', `Bearer ${tokenA}`)
       .set(IDEMPOTENCY_HEADER, key)
-      .send({ materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity });
+      .send({ siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] });
 
     expect(retry.status).toBe(201);
     expect(await orderCount(siteAId)).toBe(before + 1);
@@ -220,7 +220,7 @@ describe('POST /orders — durable idempotency', () => {
       .post('/orders')
       .set('Authorization', `Bearer ${tokenA}`)
       .set(IDEMPOTENCY_HEADER, key)
-      .send({ materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity });
+      .send({ siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] });
     expect(created.status).toBe(201);
 
     // Read the persisted row directly — this is the actual durable record a replay after a
@@ -242,7 +242,7 @@ describe('POST /orders — durable idempotency', () => {
         .post('/orders')
         .set('Authorization', `Bearer ${tokenA}`)
         .set(IDEMPOTENCY_HEADER, key)
-        .send({ materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity });
+        .send({ siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] });
       expect(replay.body).toEqual(created.body);
     } finally {
       freshClient.release();
@@ -250,7 +250,7 @@ describe('POST /orders — durable idempotency', () => {
   });
 
   it('Test 8 — requests without an Idempotency-Key header preserve existing (non-deduplicated) behavior', async () => {
-    const payload = { materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity };
+    const payload = { siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] };
     const before = await orderCount(siteAId);
 
     const first = await request(app).post('/orders').set('Authorization', `Bearer ${tokenA}`).send(payload);
@@ -267,7 +267,7 @@ describe('POST /orders — durable idempotency', () => {
       .post('/orders')
       .set('Authorization', `Bearer ${tokenA}`)
       .set(IDEMPOTENCY_HEADER, 'a'.repeat(200))
-      .send({ materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity });
+      .send({ siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] });
 
     expect(res.status).toBe(400);
     expect(res.body.code).toBe(ErrorCode.INVALID_PARAMETER);
@@ -278,7 +278,7 @@ describe('POST /orders — durable idempotency', () => {
       .post('/orders')
       .set('Authorization', `Bearer ${tokenA}`)
       .set(IDEMPOTENCY_HEADER, 'bad key; with spaces')
-      .send({ materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity });
+      .send({ siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] });
 
     expect(res.status).toBe(400);
     expect(res.body.code).toBe(ErrorCode.INVALID_PARAMETER);
@@ -286,14 +286,14 @@ describe('POST /orders — durable idempotency', () => {
 
   it('Test 10 — idempotency conflicts use the existing error/response-ID system', async () => {
     const key = `req-id-${Date.now()}`;
-    const payload = { materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity };
+    const payload = { siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] };
     await request(app).post('/orders').set('Authorization', `Bearer ${tokenA}`).set(IDEMPOTENCY_HEADER, key).send(payload);
 
     const conflict = await request(app)
       .post('/orders')
       .set('Authorization', `Bearer ${tokenA}`)
       .set(IDEMPOTENCY_HEADER, key)
-      .send({ ...payload, quantity: minOrderQuantity + 5 });
+      .send({ ...payload, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity + 5 }] });
 
     expect(conflict.status).toBe(409);
     expect(Object.keys(conflict.body).sort()).toEqual(['code', 'error', 'requestId']);
@@ -302,7 +302,7 @@ describe('POST /orders — durable idempotency', () => {
 
   it('Test 11 — a replay does not duplicate order items', async () => {
     const key = `items-${Date.now()}`;
-    const payload = { materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity };
+    const payload = { siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] };
 
     const created = await request(app).post('/orders').set('Authorization', `Bearer ${tokenA}`).set(IDEMPOTENCY_HEADER, key).send(payload);
     await request(app).post('/orders').set('Authorization', `Bearer ${tokenA}`).set(IDEMPOTENCY_HEADER, key).send(payload);
@@ -313,7 +313,7 @@ describe('POST /orders — durable idempotency', () => {
 
   it('defensive: a key claimed but still in_progress (should be unreachable in real operation) is reported as IDEMPOTENCY_REQUEST_IN_PROGRESS', async () => {
     const key = `stuck-${Date.now()}`;
-    const requestHash = computeRequestHash({ materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity });
+    const requestHash = computeRequestHash({ siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] });
 
     // Simulates the (structurally-prevented, per idempotency-store.ts's own comments) case of a
     // row existing in 'in_progress' at read time, to prove the defensive branch behaves safely
@@ -328,7 +328,7 @@ describe('POST /orders — durable idempotency', () => {
       .post('/orders')
       .set('Authorization', `Bearer ${tokenA}`)
       .set(IDEMPOTENCY_HEADER, key)
-      .send({ materialId: inStockMaterialId, siteId: siteAId, quantity: minOrderQuantity });
+      .send({ siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] });
 
     expect(res.status).toBe(409);
     expect(res.body.code).toBe(ErrorCode.IDEMPOTENCY_REQUEST_IN_PROGRESS);

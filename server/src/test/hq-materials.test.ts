@@ -218,7 +218,7 @@ describe('HQ material management (Phase 3.1)', () => {
       const res = await request(app)
         .post('/orders')
         .set('Authorization', 'Bearer ' + login.body.accessToken)
-        .send({ materialId: material.id, siteId: site.rows[0].id, quantity: 1 });
+        .send({ siteId: site.rows[0].id, items: [{ materialId: material.id, quantity: 1 }] });
 
       expect(res.status).toBe(404);
       expect(res.body.code).toBe('MATERIAL_NOT_FOUND');

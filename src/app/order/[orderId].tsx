@@ -127,8 +127,7 @@ export default function OrderStatusScreen() {
     );
   }
 
-  const item = order.items[0];
-  const subtotal = item.pricePerUnit * item.quantity;
+  const total = order.items.reduce((sum, item) => sum + item.pricePerUnit * item.quantity, 0);
   const copy = STATUS_COPY[order.status];
   const canCancel = order.status === 'requested';
 
@@ -147,9 +146,14 @@ export default function OrderStatusScreen() {
         </View>
 
         <ThemedView type="backgroundElement" style={styles.card}>
-          <OrderSummaryRow label="Material" value={item.materialName} />
-          <OrderSummaryRow label="Quantity" value={`${item.quantity} ${pluralizeUnit(item.unit, item.quantity)}`} />
-          <OrderSummaryRow label="Estimated Subtotal" value={formatCurrency(subtotal)} />
+          {order.items.map((orderItem, index) => (
+            <OrderSummaryRow
+              key={`${orderItem.materialName}-${index}`}
+              label={orderItem.materialName}
+              value={`${orderItem.quantity} ${pluralizeUnit(orderItem.unit, orderItem.quantity)}`}
+            />
+          ))}
+          <OrderSummaryRow label="Estimated Total" value={formatCurrency(total)} />
           <OrderSummaryRow label="Delivery Site" value={order.siteLabel} subvalue={order.siteAddress} />
           <OrderSummaryRow label="Estimated Delivery" value={order.estimatedDeliveryDays} />
           <OrderSummaryRow

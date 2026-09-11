@@ -9,7 +9,6 @@ import { PrimaryButton } from '@/components/primary-button';
 import { ScreenContainer } from '@/components/screen-container';
 import { StatusBadge } from '@/components/status-badge';
 import { ThemedText } from '@/components/themed-text';
-import { useOrderDraft } from '@/context/order-draft-context';
 import { Colors, Spacing } from '@/constants/theme';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { getCategoryById } from '@/services/categories-service';
@@ -32,7 +31,6 @@ const EMPTY_MATERIAL_DETAIL: MaterialDetailData = { material: null, category: nu
 
 export default function MaterialDetailScreen() {
   const { materialId } = useLocalSearchParams<{ materialId: string }>();
-  const { startDraft } = useOrderDraft();
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
 
   const fetchMaterialDetail = useCallback(async (): Promise<MaterialDetailData> => {
@@ -145,10 +143,7 @@ export default function MaterialDetailScreen() {
         <PrimaryButton
           label={outOfStock ? 'Out of Stock' : 'Request This Material'}
           disabled={outOfStock}
-          onPress={() => {
-            startDraft(material.id, material.minOrderQuantity);
-            router.push({ pathname: '/material/[materialId]/order', params: { materialId: material.id } });
-          }}
+          onPress={() => router.push({ pathname: '/material/[materialId]/order', params: { materialId: material.id } })}
         />
       </ScreenContainer>
     </>

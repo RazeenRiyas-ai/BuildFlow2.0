@@ -1,16 +1,14 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { ErrorBanner } from '@/components/error-banner';
 import { PrimaryButton } from '@/components/primary-button';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { ScreenContainer } from '@/components/screen-container';
-import { SiteSelector } from '@/components/site-selector';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { useOrderDraft } from '@/context/order-draft-context';
-import { useSites } from '@/context/sites-context';
+import { useCart } from '@/context/cart-context';
 import { Spacing } from '@/constants/theme';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { getMaterialById } from '@/services/materials-service';
@@ -20,11 +18,18 @@ import { pluralizeUnit } from '@/types/unit';
 
 export default function MaterialOrderScreen() {
   const { materialId } = useLocalSearchParams<{ materialId: string }>();
-  const { draft, setQuantity, setSite } = useOrderDraft();
-  const { sites } = useSites();
+  const { addItem } = useCart();
+  // Local to this screen, not the cart — the cart only ever holds a *confirmed* line (added via
+  // "Add to Cart" below); nothing here is written to cart state until that tap happens, so
+  // navigating away without tapping it leaves the cart untouched. Only ever set by the stepper's
+  // own onChange (a real event handler, never an effect) — starts null and falls back to the
+  // material's own minimum below, so there's no setState-in-effect needed to seed it once the
+  // material finishes loading.
+  const [quantityOverride, setQuantityOverride] = useState<number | null>(null);
 
   const fetchMaterial = useCallback(() => getMaterialById(materialId), [materialId]);
   const { data: material, isLoading, error, refetch } = useAsyncData<Material | undefined>(fetchMaterial, undefined);
+  const quantity = quantityOverride ?? material?.minOrderQuantity ?? 0;
 
   if (isLoading && !material) {
     return (
@@ -54,8 +59,6 @@ export default function MaterialOrderScreen() {
     );
   }
 
-  const canReview = draft.quantity >= material.minOrderQuantity && !!draft.siteId;
-
   return (
     <>
       <Stack.Screen options={{ title: 'Request Details' }} />
@@ -74,28 +77,24 @@ export default function MaterialOrderScreen() {
         <View style={styles.section}>
           <ThemedText type="smallBold">Quantity</ThemedText>
           <QuantityStepper
-            quantity={draft.quantity}
+            quantity={quantity}
             minQuantity={material.minOrderQuantity}
             step={material.quantityStep}
             unit={material.unit}
-            onChange={setQuantity}
+            onChange={setQuantityOverride}
           />
           <ThemedText type="small" themeColor="textSecondary">
             Minimum order: {material.minOrderQuantity} {pluralizeUnit(material.unit, material.minOrderQuantity)}
           </ThemedText>
         </View>
 
-        <View style={styles.section}>
-          <ThemedText type="smallBold">Delivery Site</ThemedText>
-          <SiteSelector
-            sites={sites}
-            selectedSiteId={draft.siteId}
-            onSelect={setSite}
-            onAddNew={() => router.push('/sites/new')}
-          />
-        </View>
-
-        <PrimaryButton label="Review Request" disabled={!canReview} onPress={() => router.push('/order/review')} />
+        <PrimaryButton
+          label="Add to Cart"
+          onPress={() => {
+            addItem(material.id, quantity);
+            router.push('/order/review');
+          }}
+        />
       </ScreenContainer>
     </>
   );

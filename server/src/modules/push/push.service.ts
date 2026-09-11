@@ -127,10 +127,14 @@ export async function sendPushToHqDevices(order: OrderForPush) {
     const tokens = result.rows.map((row) => row.expo_push_token);
     if (tokens.length === 0) return;
 
+    // Exactly one item still shows quantity/unit/name directly (the pre-Phase-3.3 behavior,
+    // unchanged); more than one summarizes by count — picking one of several materials to show
+    // would be arbitrary, and the full list would make this notification unbounded in length.
     const item = order.items[0];
+    const summary = order.items.length === 1 ? `${item.quantity} ${item.unit} · ${item.material_name}` : `${order.items.length} items`;
     await sendExpoPush(tokens, {
       title: 'New order request',
-      body: `${item.quantity} ${item.unit} · ${item.material_name} · ${order.site_label}`,
+      body: `${summary} · ${order.site_label}`,
       data: { type: 'order_created', orderId: order.id },
     });
   } catch (err) {
@@ -159,7 +163,11 @@ interface ContractorOrderStatusPushInput {
   orderId: string;
   contractorId: string;
   status: OrderStatus;
-  materialName: string;
+  /** A single material's name (the pre-Phase-3.3, still-most-common case) or an item-count
+   * summary like "3 items" for a multi-item order — never the full item list, which would make
+   * this notification body unbounded in length. See orders.service.ts's
+   * notifyContractorOfStatusChange, the only caller, for how this is derived. */
+  itemSummary: string;
 }
 
 /**
@@ -181,10 +189,10 @@ export async function sendOrderStatusPushToContractor(input: ContractorOrderStat
 
     await sendExpoPush(tokens, {
       title: copy.title,
-      // Material name included so a contractor with multiple simultaneous requests can tell them
+      // Item summary included so a contractor with multiple simultaneous requests can tell them
       // apart from the notification alone — deliberately nothing more (no price, no site address,
       // no contractor/company identity beyond what the device's own owner already knows).
-      body: `${copy.body} (${input.materialName})`,
+      body: `${copy.body} (${input.itemSummary})`,
       data: { type: 'order_status_changed', orderId: input.orderId, status: input.status },
     });
   } catch (err) {

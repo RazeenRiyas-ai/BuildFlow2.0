@@ -15,17 +15,30 @@ interface ListOrdersFilters {
   status?: OrderStatus;
 }
 
+/**
+ * One row per order (see orders.service.ts's listOrdersForContractor for the identical reasoning
+ * on why this can no longer be a flat, ungrouped JOIN now that an order can have more than one
+ * item) — `GROUP BY o.id, c.id` names both joined tables' own primary keys, so every other column
+ * from either table is functionally free to select without listing it again.
+ */
 export async function listOrdersForHq(filters: ListOrdersFilters = {}) {
-  const columns = 'o.id, o.status, o.site_label, o.site_address, o.estimated_delivery_days, o.created_at, o.updated_at, c.name AS contractor_name, c.phone AS contractor_phone, oi.material_name, oi.unit, oi.price_per_unit, oi.quantity';
+  const columns = `o.id, o.status, o.site_label, o.site_address, o.estimated_delivery_days, o.created_at, o.updated_at, c.name AS contractor_name, c.phone AS contractor_phone,
+    json_agg(json_build_object(
+      'material_name', oi.material_name,
+      'unit', oi.unit,
+      'price_per_unit', oi.price_per_unit,
+      'quantity', oi.quantity
+    ) ORDER BY oi.display_order, oi.id) AS items`;
   const from = 'FROM orders o JOIN contractors c ON c.id = o.contractor_id JOIN order_items oi ON oi.order_id = o.id';
+  const groupBy = 'GROUP BY o.id, c.id';
 
   if (filters.status) {
-    const sql = 'SELECT ' + columns + ' ' + from + ' WHERE o.status = $1 ORDER BY o.created_at DESC';
+    const sql = 'SELECT ' + columns + ' ' + from + ' WHERE o.status = $1 ' + groupBy + ' ORDER BY o.created_at DESC';
     const result = await pool.query(sql, [filters.status]);
     return result.rows;
   }
 
-  const sql = 'SELECT ' + columns + ' ' + from + ' ORDER BY o.created_at DESC';
+  const sql = 'SELECT ' + columns + ' ' + from + ' ' + groupBy + ' ORDER BY o.created_at DESC';
   const result = await pool.query(sql);
   return result.rows;
 }
@@ -38,7 +51,7 @@ export async function getOrderForHq(orderId: string) {
   const order = orderResult.rows[0];
   if (!order) return null;
 
-  const itemsSql = 'SELECT id, material_id, material_name, unit, price_per_unit, quantity FROM order_items WHERE order_id = $1';
+  const itemsSql = 'SELECT id, material_id, material_name, unit, price_per_unit, quantity FROM order_items WHERE order_id = $1 ORDER BY display_order, id';
   const itemsResult = await pool.query(itemsSql, [orderId]);
 
   const historyColumns = 'id, type, from_status, to_status, supplier_id, contact_method, outcome, carrier_info, note, actor_user_id, created_at';

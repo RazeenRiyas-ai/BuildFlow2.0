@@ -4,7 +4,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useRef } from 'react';
 
 import { AuthProvider, useAuth } from '@/context/auth-context';
-import { OrderDraftProvider } from '@/context/order-draft-context';
+import { CartProvider } from '@/context/cart-context';
 import { OrdersProvider } from '@/context/orders-context';
 import { SitesProvider } from '@/context/sites-context';
 import { extractOrderIdFromNotificationData, resolveOrderNotificationRoute } from '@/utils/notification-routing';
@@ -99,9 +99,9 @@ export default function RootLayout() {
         <NotificationTapController />
         <SitesProvider>
           <OrdersProvider>
-            <OrderDraftProvider>
+            <CartProvider>
               <RootNavigator />
-            </OrderDraftProvider>
+            </CartProvider>
           </OrdersProvider>
         </SitesProvider>
       </AuthProvider>

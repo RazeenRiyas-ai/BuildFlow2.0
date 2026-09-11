@@ -15,6 +15,18 @@ function toItemShape(item: any) {
   };
 }
 
+function toItemSummaryShape(item: any) {
+  return {
+    materialName: item.material_name,
+    unit: item.unit,
+    pricePerUnit: Number(item.price_per_unit),
+    quantity: Number(item.quantity),
+  };
+}
+
+// `row.items` is the json_agg array built by listOrdersForHq's SQL (one row per order, aggregated
+// across every order_items row that belongs to it) — see orders.controller.ts's identical shaping
+// function for the same reasoning.
 function toQueueShape(row: any) {
   return {
     id: row.id,
@@ -26,14 +38,7 @@ function toQueueShape(row: any) {
     updatedAt: row.updated_at,
     contractorName: row.contractor_name,
     contractorPhone: row.contractor_phone,
-    items: [
-      {
-        materialName: row.material_name,
-        unit: row.unit,
-        pricePerUnit: Number(row.price_per_unit),
-        quantity: Number(row.quantity),
-      },
-    ],
+    items: row.items.map(toItemSummaryShape),
   };
 }
 

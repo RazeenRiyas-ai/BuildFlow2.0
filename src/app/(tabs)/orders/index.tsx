@@ -65,7 +65,12 @@ export default function OrdersScreen() {
       <NotificationOptInBanner />
       <View style={styles.list}>
         {orders.map((order) => {
-          const item = order.items[0];
+          // A single-item order (still the common case) names its one material directly, exactly
+          // as every order row already did; more than one shows a count instead — the date is the
+          // only thing that still makes sense to show alongside items from different materials.
+          const isSingleItem = order.items.length === 1;
+          const title = isSingleItem ? order.items[0].materialName : `${order.items.length} items`;
+          const dateLabel = new Date(order.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
           return (
             <Pressable
               key={order.id}
@@ -77,11 +82,10 @@ export default function OrdersScreen() {
                 </View>
                 <View style={styles.rowDetails}>
                   <ThemedText type="smallBold" numberOfLines={1}>
-                    {item.materialName}
+                    {title}
                   </ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
-                    {item.quantity} {pluralizeUnit(item.unit, item.quantity)} ·{' '}
-                    {new Date(order.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    {isSingleItem ? `${order.items[0].quantity} ${pluralizeUnit(order.items[0].unit, order.items[0].quantity)} · ${dateLabel}` : dateLabel}
                   </ThemedText>
                   <StatusBadge orderStatus={order.status} />
                 </View>

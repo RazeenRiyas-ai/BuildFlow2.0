@@ -5,7 +5,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { StatusColors, Spacing } from '@/constants/theme';
 import { HqOrderQueueItem } from '@/types';
-import { pluralizeUnit } from '@/types/unit';
+import { summarizeOrderItems } from '@/utils/order-summary';
 
 const ATTENTION_STATUSES = new Set(['requested', 'supplier_rejected']);
 
@@ -14,7 +14,7 @@ interface HqOrderRowProps {
 }
 
 export function HqOrderRow({ order }: HqOrderRowProps) {
-  const item = order.items[0];
+  const itemsSummary = summarizeOrderItems(order.items);
   const needsAttention = ATTENTION_STATUSES.has(order.status);
 
   return (
@@ -28,7 +28,7 @@ export function HqOrderRow({ order }: HqOrderRowProps) {
         <StatusBadge orderStatus={order.status} />
       </View>
       <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-        {item.quantity} {pluralizeUnit(item.unit, item.quantity)} · {item.materialName}
+        {itemsSummary}
       </ThemedText>
       <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
         {order.siteLabel}

@@ -1,4 +1,4 @@
-import { UnitOfMeasure } from '@/types/unit';
+import type { UnitOfMeasure } from '@/types/unit';
 
 export type OrderStatus =
   | 'requested'
@@ -28,7 +28,8 @@ export interface OrderHistoryEntry {
 
 export interface Order {
   id: string;
-  /** An array so a future multi-item order needs no schema change; MVP always submits exactly one. */
+  /** One or more items — a single-material order (still the common case) is just the length-1
+   * case of the same array, not a distinct shape (Phase 3.3). */
   items: OrderItem[];
   siteLabel: string;
   siteAddress: string;
@@ -44,16 +45,26 @@ export interface OrderDetail extends Order {
   history: OrderHistoryEntry[];
 }
 
-/** The in-progress selection before a request is submitted. Never persisted. */
-export interface OrderDraft {
-  materialId: string | null;
+export interface SubmitOrderItemInput {
+  materialId: string;
   quantity: number;
-  siteId: string | null;
 }
 
 export interface SubmitOrderInput {
+  siteId: string;
+  items: SubmitOrderItemInput[];
+  note?: string;
+}
+
+export interface CartItem {
   materialId: string;
   quantity: number;
-  siteId: string;
-  note?: string;
+}
+
+/** The in-progress multi-item order before it's submitted. Never persisted — cleared on successful
+ * submit, lost if the app is closed mid-build (same lifetime the single-item draft this replaced
+ * always had). See utils/cart.ts for the pure functions that operate on this shape. */
+export interface Cart {
+  items: CartItem[];
+  siteId: string | null;
 }

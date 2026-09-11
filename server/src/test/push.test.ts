@@ -150,7 +150,7 @@ describe('Order creation with a registered HQ push token', () => {
     const res = await request(app)
       .post('/orders')
       .set('Authorization', 'Bearer ' + contractorToken)
-      .send({ materialId, siteId, quantity: minOrderQuantity });
+      .send({ siteId, items: [{ materialId, quantity: minOrderQuantity }] });
     expect(res.status).toBe(201);
     createdOrderId = res.body.id;
   });
@@ -247,7 +247,7 @@ describe('sendOrderStatusPushToContractor', () => {
       orderId: '00000000-0000-0000-0000-0000000000aa',
       contractorId: contractorAId,
       status: 'supplier_confirmed',
-      materialName: 'OPC Cement',
+      itemSummary: 'OPC Cement',
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -276,7 +276,7 @@ describe('sendOrderStatusPushToContractor', () => {
         orderId,
         contractorId: contractorBId,
         status: testCase.status as any,
-        materialName: 'TMT Steel Bar',
+        itemSummary: 'TMT Steel Bar',
       });
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -296,7 +296,7 @@ describe('sendOrderStatusPushToContractor', () => {
       orderId: '00000000-0000-0000-0000-0000000000cc',
       contractorId: contractorAId,
       status: 'requested' as any,
-      materialName: 'Sand',
+      itemSummary: 'Sand',
     });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -318,7 +318,7 @@ describe('sendOrderStatusPushToContractor', () => {
       orderId: '00000000-0000-0000-0000-0000000000dd',
       contractorId: contractorAId,
       status: 'delivered',
-      materialName: 'Bricks',
+      itemSummary: 'Bricks',
     });
 
     // Order of tokens in the `to` array matches insertion order (tokenA1 registered first), so the
@@ -342,7 +342,7 @@ describe('sendOrderStatusPushToContractor', () => {
       orderId: '00000000-0000-0000-0000-0000000000ee',
       contractorId: contractorBId,
       status: 'delivered',
-      materialName: 'Bricks',
+      itemSummary: 'Bricks',
     });
 
     const remaining = await pool.query('SELECT 1 FROM push_tokens WHERE user_id = $1 AND expo_push_token = $2', [contractorBId, tokenB1]);
@@ -357,7 +357,7 @@ describe('sendOrderStatusPushToContractor', () => {
         orderId: '00000000-0000-0000-0000-0000000000ff',
         contractorId: contractorBId,
         status: 'delivered',
-        materialName: 'Bricks',
+        itemSummary: 'Bricks',
       }),
     ).resolves.toBeUndefined();
 
@@ -430,7 +430,7 @@ describe('contractor order-status push — end-to-end wiring and isolation', () 
     const orderRes = await request(app)
       .post('/orders')
       .set('Authorization', 'Bearer ' + contractorAToken)
-      .send({ materialId, siteId: siteAId, quantity: minOrderQuantity });
+      .send({ siteId: siteAId, items: [{ materialId, quantity: minOrderQuantity }] });
     const orderId = orderRes.body.id as string;
 
     // Order creation fires its own fire-and-forget push to HQ devices (against the deliberately
@@ -465,7 +465,7 @@ describe('contractor order-status push — end-to-end wiring and isolation', () 
     const orderRes = await request(app)
       .post('/orders')
       .set('Authorization', 'Bearer ' + contractorAToken)
-      .send({ materialId, siteId: siteAId, quantity: minOrderQuantity });
+      .send({ siteId: siteAId, items: [{ materialId, quantity: minOrderQuantity }] });
     const orderId = orderRes.body.id as string;
 
     // See the previous test's identical comment: let order creation's own fire-and-forget HQ push
@@ -501,7 +501,7 @@ describe('contractor order-status push — end-to-end wiring and isolation', () 
     const orderRes = await request(app)
       .post('/orders')
       .set('Authorization', 'Bearer ' + contractorAToken)
-      .send({ materialId, siteId: siteAId, quantity: minOrderQuantity });
+      .send({ siteId: siteAId, items: [{ materialId, quantity: minOrderQuantity }] });
     const orderId = orderRes.body.id as string;
 
     vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Expo is down'));
@@ -522,7 +522,7 @@ describe('contractor order-status push — end-to-end wiring and isolation', () 
     const orderRes = await request(app)
       .post('/orders')
       .set('Authorization', 'Bearer ' + contractorAToken)
-      .send({ materialId, siteId: siteAId, quantity: minOrderQuantity });
+      .send({ siteId: siteAId, items: [{ materialId, quantity: minOrderQuantity }] });
     const orderId = orderRes.body.id as string;
 
     const res = await request(app)

@@ -78,7 +78,7 @@ describe('Order rooms + order events (Socket.io)', () => {
     const orderRes = await request(app)
       .post('/orders')
       .set('Authorization', 'Bearer ' + contractorToken)
-      .send({ materialId, siteId, quantity: materialQuantity });
+      .send({ siteId, items: [{ materialId, quantity: materialQuantity }] });
     orderId = orderRes.body.id;
   });
 

@@ -31,7 +31,7 @@ describe('HQ module', () => {
     const orderRes = await request(app)
       .post('/orders')
       .set('Authorization', 'Bearer ' + contractorToken)
-      .send({ materialId, siteId, quantity: inStock.minOrderQuantity });
+      .send({ siteId, items: [{ materialId, quantity: inStock.minOrderQuantity }] });
     orderId = orderRes.body.id;
 
     const hqLogin = await request(app).post('/auth/login').send({ phone: '+91 90000 00001', password: 'password123' });
@@ -197,7 +197,7 @@ describe('HQ operational integrity — state validation and concurrency', () => 
     const orderRes = await request(app)
       .post('/orders')
       .set('Authorization', 'Bearer ' + contractorToken)
-      .send({ materialId, siteId, quantity: minOrderQuantity });
+      .send({ siteId, items: [{ materialId, quantity: minOrderQuantity }] });
     const id = orderRes.body.id as string;
     if (status === 'requested') return id;
 

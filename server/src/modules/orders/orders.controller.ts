@@ -15,6 +15,18 @@ function toItemShape(item: any) {
   };
 }
 
+function toItemSummaryShape(item: any) {
+  return {
+    materialName: item.material_name,
+    unit: item.unit,
+    pricePerUnit: Number(item.price_per_unit),
+    quantity: Number(item.quantity),
+  };
+}
+
+// `row.items` is the json_agg array built by listOrdersForContractor's SQL (one row per order,
+// aggregated across every order_items row that belongs to it) — already the shape a multi-item
+// order needs, not something this shaping step has to construct from flat columns anymore.
 function toOrderSummaryShape(row: any) {
   return {
     id: row.id,
@@ -24,14 +36,7 @@ function toOrderSummaryShape(row: any) {
     estimatedDeliveryDays: row.estimated_delivery_days,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    items: [
-      {
-        materialName: row.material_name,
-        unit: row.unit,
-        pricePerUnit: Number(row.price_per_unit),
-        quantity: Number(row.quantity),
-      },
-    ],
+    items: row.items.map(toItemSummaryShape),
   };
 }
 

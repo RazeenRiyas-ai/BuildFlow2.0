@@ -51,10 +51,14 @@ export const HQ_ACTION_ALLOWED_STATUSES: Record<
   deliveryUpdate: ['driver_assigned', 'out_for_delivery'],
 };
 
-interface CreateOrderInput {
+interface CreateOrderItemInput {
   materialId: string;
-  siteId: string;
   quantity: number;
+}
+
+interface CreateOrderInput {
+  siteId: string;
+  items: CreateOrderItemInput[];
   note?: string;
 }
 
@@ -112,26 +116,6 @@ export async function createOrder(contractorId: string, input: CreateOrderInput,
   const { responseStatus, body, replayed } = await runIdempotentOperation<CreateOrderResponseBody>(
     { userId: contractorId, scope: IDEMPOTENCY_SCOPES.ORDERS_CREATE, idempotencyKey, requestPayload: input },
     async (client) => {
-      // Deactivated materials are treated as not found for ordering purposes — the same rule the
-      // contractor-facing catalog itself already applies (materials.service.ts's listMaterials /
-      // getMaterialById / searchMaterials all filter is_active = true), so a stale deep link or
-      // cached material id can never be used to order something HQ just deactivated.
-      const materialResult = await client.query(
-        'SELECT id, name, unit, price_per_unit, stock_status, min_order_quantity, estimated_delivery_days FROM materials WHERE id = $1 AND is_active = true',
-        [input.materialId],
-      );
-      const material = materialResult.rows[0];
-      if (!material) throw new NotFoundError('Material not found', ErrorCode.MATERIAL_NOT_FOUND);
-      if (material.stock_status === 'out_of_stock') {
-        throw new ConflictError('Material is out of stock', ErrorCode.MATERIAL_OUT_OF_STOCK);
-      }
-      if (input.quantity < Number(material.min_order_quantity)) {
-        throw new AppError(400, 'Quantity is below the minimum order quantity', ErrorCode.INVALID_PARAMETER, {
-          field: 'quantity',
-          minimum: Number(material.min_order_quantity),
-        });
-      }
-
       const siteResult = await client.query(
         'SELECT id, label, address FROM construction_sites WHERE id = $1 AND contractor_id = $2 AND deleted_at IS NULL',
         [input.siteId, contractorId],
@@ -139,23 +123,82 @@ export async function createOrder(contractorId: string, input: CreateOrderInput,
       const site = siteResult.rows[0];
       if (!site) throw new NotFoundError('Site not found', ErrorCode.SITE_NOT_FOUND);
 
+      // Every item is fetched and validated BEFORE any INSERT happens — a failure on item 3 of 5
+      // must never leave items 1-2 already written. This loop only reads; nothing is persisted
+      // until every item in the array has passed every check, and even then the whole thing runs
+      // inside runIdempotentOperation's own transaction, so a later failure (or a crash) rolls back
+      // any already-validated items' inserts too, not just this loop's own reads.
+      const validatedItems: {
+        material: { id: string; name: string; unit: string; price_per_unit: string; estimated_delivery_days: string };
+        quantity: number;
+      }[] = [];
+
+      for (const itemInput of input.items) {
+        // Deactivated materials are treated as not found for ordering purposes — the same rule the
+        // contractor-facing catalog itself already applies (materials.service.ts's listMaterials /
+        // getMaterialById / searchMaterials all filter is_active = true), so a stale deep link or
+        // cached material id can never be used to order something HQ just deactivated.
+        const materialResult = await client.query(
+          'SELECT id, name, unit, price_per_unit, stock_status, min_order_quantity, estimated_delivery_days FROM materials WHERE id = $1 AND is_active = true',
+          [itemInput.materialId],
+        );
+        const material = materialResult.rows[0];
+        if (!material) {
+          throw new NotFoundError('Material not found', ErrorCode.MATERIAL_NOT_FOUND, { materialId: itemInput.materialId });
+        }
+        if (material.stock_status === 'out_of_stock') {
+          throw new ConflictError('Material is out of stock', ErrorCode.MATERIAL_OUT_OF_STOCK, { materialId: material.id });
+        }
+        if (itemInput.quantity < Number(material.min_order_quantity)) {
+          throw new AppError(400, 'Quantity is below the minimum order quantity', ErrorCode.INVALID_PARAMETER, {
+            field: 'quantity',
+            minimum: Number(material.min_order_quantity),
+            materialId: material.id,
+          });
+        }
+        validatedItems.push({ material, quantity: itemInput.quantity });
+      }
+
+      // A cart can never legitimately contain the same material twice (that's just a larger
+      // quantity of one line) — reject it here as defense in depth against a client bug/tamper
+      // rather than relying solely on the frontend cart's own merge-on-add behavior, per "never
+      // trust frontend validation."
+      const materialIds = validatedItems.map((v) => v.material.id);
+      if (new Set(materialIds).size !== materialIds.length) {
+        throw new AppError(400, 'Duplicate material in order items', ErrorCode.INVALID_PARAMETER);
+      }
+
+      // orders.estimated_delivery_days stays a single per-order field (unchanged column) — for a
+      // multi-item order this shows the first item's own estimate. A real per-material aggregate
+      // delivery estimate (e.g. "worst case across all items") is a genuine future refinement, but
+      // inventing that parsing logic now would be scope creep this phase deliberately avoids; this
+      // is an honest simplification, not a hidden one, and is exactly the existing single-item
+      // behavior for the one-item case.
+      const estimatedDeliveryDays = validatedItems[0].material.estimated_delivery_days;
+
       const orderResult = await client.query(
         'INSERT INTO orders (contractor_id, site_id, site_label, site_address, status, estimated_delivery_days, contractor_note) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, contractor_id, site_id, site_label, site_address, status, estimated_delivery_days, contractor_note, assigned_supplier_id, driver_name, driver_phone, created_at, updated_at',
-        [contractorId, site.id, site.label, site.address, 'requested', material.estimated_delivery_days, input.note ?? null],
+        [contractorId, site.id, site.label, site.address, 'requested', estimatedDeliveryDays, input.note ?? null],
       );
       const order = orderResult.rows[0];
 
-      const itemResult = await client.query(
-        'INSERT INTO order_items (order_id, material_id, material_name, unit, price_per_unit, quantity) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, material_id, material_name, unit, price_per_unit, quantity',
-        [order.id, material.id, material.name, material.unit, material.price_per_unit, input.quantity],
-      );
+      const insertedItems: { id: string; material_id: string; material_name: string; unit: string; price_per_unit: string; quantity: string }[] =
+        [];
+      for (let index = 0; index < validatedItems.length; index += 1) {
+        const { material, quantity } = validatedItems[index];
+        const itemResult = await client.query(
+          'INSERT INTO order_items (order_id, material_id, material_name, unit, price_per_unit, quantity, display_order) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, material_id, material_name, unit, price_per_unit, quantity',
+          [order.id, material.id, material.name, material.unit, material.price_per_unit, quantity, index],
+        );
+        insertedItems.push(itemResult.rows[0]);
+      }
 
       await client.query(
         'INSERT INTO order_status_history (order_id, type, to_status, actor_user_id) VALUES ($1, $2, $3, $4)',
         [order.id, 'status_change', 'requested', contractorId],
       );
 
-      const orderWithItems = { ...order, items: [itemResult.rows[0]] };
+      const orderWithItems = { ...order, items: insertedItems };
       createdOrderForPush = orderWithItems;
 
       return { responseStatus: 201, body: toCreateOrderResponseBody(orderWithItems), resourceId: order.id as string };
@@ -174,9 +217,28 @@ export async function createOrder(contractorId: string, input: CreateOrderInput,
   return { responseStatus, body };
 }
 
+/**
+ * One row per order, each with a `items` JSON array aggregated across every order_items row that
+ * belongs to it — `GROUP BY o.id` alone is enough for Postgres to treat every other o.* column as
+ * functionally dependent (same table, same primary key), so none of them need listing separately.
+ * Before Phase 3.3 this JOIN produced one row per *item*, which was only ever safe because every
+ * order had exactly one; a multi-item order under that old query would have appeared as several
+ * duplicate order rows, once per item.
+ */
 export async function listOrdersForContractor(contractorId: string) {
   const result = await pool.query(
-    'SELECT o.id, o.status, o.site_label, o.site_address, o.estimated_delivery_days, o.created_at, o.updated_at, oi.material_name, oi.unit, oi.price_per_unit, oi.quantity FROM orders o JOIN order_items oi ON oi.order_id = o.id WHERE o.contractor_id = $1 ORDER BY o.created_at DESC',
+    `SELECT o.id, o.status, o.site_label, o.site_address, o.estimated_delivery_days, o.created_at, o.updated_at,
+       json_agg(json_build_object(
+         'material_name', oi.material_name,
+         'unit', oi.unit,
+         'price_per_unit', oi.price_per_unit,
+         'quantity', oi.quantity
+       ) ORDER BY oi.display_order, oi.id) AS items
+     FROM orders o
+     JOIN order_items oi ON oi.order_id = o.id
+     WHERE o.contractor_id = $1
+     GROUP BY o.id
+     ORDER BY o.created_at DESC`,
     [contractorId],
   );
   return result.rows;
@@ -191,7 +253,7 @@ export async function getOrderForContractor(contractorId: string, orderId: strin
   if (!order) return null;
 
   const itemsResult = await pool.query(
-    'SELECT id, material_id, material_name, unit, price_per_unit, quantity FROM order_items WHERE order_id = $1',
+    'SELECT id, material_id, material_name, unit, price_per_unit, quantity FROM order_items WHERE order_id = $1 ORDER BY display_order, id',
     [orderId],
   );
 
@@ -204,19 +266,24 @@ export async function getOrderForContractor(contractorId: string, orderId: strin
 }
 
 /**
- * Looks up the contractor and the order's (single, MVP) material name, then fires the push —
- * entirely after the caller's transaction has already committed, and never awaited by the caller
- * (see its one call site in transitionOrderStatus below): a slow or failing lookup/push here can
- * never delay or fail the HTTP response for the status-change request that triggered it.
+ * Looks up the contractor and a safe item-count-aware summary of the order's contents, then fires
+ * the push — entirely after the caller's transaction has already committed, and never awaited by
+ * the caller (see its one call site in transitionOrderStatus below): a slow or failing lookup/push
+ * here can never delay or fail the HTTP response for the status-change request that triggered it.
  * sendOrderStatusPushToContractor itself already never throws; this wrapper only exists to isolate
  * the (rare, harmless-to-lose) case where the order_items lookup itself fails.
  */
 async function notifyContractorOfStatusChange(orderId: string, contractorId: string, toStatus: OrderStatus): Promise<void> {
-  const itemResult = await pool.query<{ material_name: string }>('SELECT material_name FROM order_items WHERE order_id = $1 LIMIT 1', [
-    orderId,
-  ]);
-  const materialName = itemResult.rows[0]?.material_name ?? 'your order';
-  await sendOrderStatusPushToContractor({ orderId, contractorId, status: toStatus, materialName });
+  const itemsResult = await pool.query<{ material_name: string }>(
+    'SELECT material_name FROM order_items WHERE order_id = $1 ORDER BY display_order, id',
+    [orderId],
+  );
+  // Exactly one item names it directly (unchanged from before Phase 3.3, the single-item
+  // degenerate case); more than one summarizes by count instead of picking one name arbitrarily —
+  // still safe content (no price/address), just no longer assumes there's only ever one material.
+  const itemNames = itemsResult.rows.map((row) => row.material_name);
+  const itemSummary = itemNames.length === 0 ? 'your order' : itemNames.length === 1 ? itemNames[0] : `${itemNames.length} items`;
+  await sendOrderStatusPushToContractor({ orderId, contractorId, status: toStatus, itemSummary });
 }
 
 export async function transitionOrderStatus(orderId: string, toStatus: OrderStatus, actorUserId: string, note?: string) {

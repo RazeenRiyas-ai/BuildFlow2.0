@@ -8,6 +8,7 @@ export default function HqLayout() {
       <Stack.Screen name="materials/index" options={{ title: 'Materials' }} />
       <Stack.Screen name="materials/new" options={{ title: 'New Material' }} />
       <Stack.Screen name="materials/[materialId]/index" options={{ title: 'Material' }} />
+      <Stack.Screen name="drivers/index" options={{ title: 'Drivers' }} />
     </Stack>
   );
 }

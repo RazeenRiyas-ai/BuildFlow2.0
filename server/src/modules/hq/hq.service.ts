@@ -44,7 +44,7 @@ export async function listOrdersForHq(filters: ListOrdersFilters = {}) {
 }
 
 export async function getOrderForHq(orderId: string) {
-  const orderColumns = 'o.id, o.status, o.site_label, o.site_address, o.estimated_delivery_days, o.contractor_note, o.assigned_supplier_id, o.driver_name, o.driver_phone, o.created_at, o.updated_at';
+  const orderColumns = 'o.id, o.status, o.site_label, o.site_address, o.estimated_delivery_days, o.contractor_note, o.assigned_supplier_id, o.assigned_driver_id, o.driver_name, o.driver_phone, o.created_at, o.updated_at';
   const contractorColumns = 'c.name AS contractor_name, c.company_name AS contractor_company_name, c.phone AS contractor_phone';
   const orderSql = 'SELECT ' + orderColumns + ', ' + contractorColumns + ' FROM orders o JOIN contractors c ON c.id = o.contractor_id WHERE o.id = $1';
   const orderResult = await pool.query(orderSql, [orderId]);
@@ -145,22 +145,38 @@ export async function assignSupplier(orderId: string, actorUserId: string, input
 }
 
 interface AssignDriverInput {
-  driverName: string;
-  driverPhone?: string;
+  driverId: string;
   note?: string;
 }
 
+/**
+ * Looks up the driver and snapshots its current name/phone into orders.driver_name/driver_phone —
+ * the same "snapshot at assignment time, never a live join" pattern order_items already uses for
+ * material name/price (see orders.service.ts's createOrder). A driver's contact details changing
+ * later (or the driver being deactivated) must never retroactively alter what an already-assigned
+ * order shows; assigned_driver_id is purely an additional pointer to the canonical record for
+ * future reference, not the source of truth an existing screen reads from.
+ *
+ * Only active drivers can be newly assigned — an inactive one is treated as not found, the same
+ * rule materials.service.ts already applies to deactivated materials.
+ */
 export async function assignDriver(orderId: string, actorUserId: string, input: AssignDriverInput) {
   await withTransaction(async (client) => {
     await lockOrderForAction(client, orderId, HQ_ACTION_ALLOWED_STATUSES.assignDriver, 'assign a driver');
 
-    await client.query('UPDATE orders SET driver_name = $1, driver_phone = $2, updated_at = now() WHERE id = $3', [
-      input.driverName,
-      input.driverPhone ?? null,
-      orderId,
-    ]);
+    const driverResult = await client.query<{ name: string; phone: string | null }>(
+      'SELECT name, phone FROM drivers WHERE id = $1 AND is_active = true',
+      [input.driverId],
+    );
+    const driver = driverResult.rows[0];
+    if (!driver) throw new NotFoundError('Driver not found', ErrorCode.DRIVER_NOT_FOUND);
 
-    const carrierInfo = input.driverPhone ? `${input.driverName} (${input.driverPhone})` : input.driverName;
+    await client.query(
+      'UPDATE orders SET assigned_driver_id = $1, driver_name = $2, driver_phone = $3, updated_at = now() WHERE id = $4',
+      [input.driverId, driver.name, driver.phone, orderId],
+    );
+
+    const carrierInfo = driver.phone ? `${driver.name} (${driver.phone})` : driver.name;
     await client.query(
       `INSERT INTO order_status_history (order_id, type, carrier_info, actor_user_id, note)
        VALUES ($1, 'driver_assigned', $2, $3, $4)`,

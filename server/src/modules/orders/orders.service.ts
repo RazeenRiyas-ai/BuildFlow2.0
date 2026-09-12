@@ -246,7 +246,7 @@ export async function listOrdersForContractor(contractorId: string) {
 
 export async function getOrderForContractor(contractorId: string, orderId: string) {
   const orderResult = await pool.query(
-    'SELECT id, status, site_label, site_address, estimated_delivery_days, contractor_note, assigned_supplier_id, driver_name, driver_phone, created_at, updated_at FROM orders WHERE id = $1 AND contractor_id = $2',
+    'SELECT id, status, site_label, site_address, estimated_delivery_days, contractor_note, assigned_supplier_id, assigned_driver_id, driver_name, driver_phone, created_at, updated_at FROM orders WHERE id = $1 AND contractor_id = $2',
     [orderId, contractorId],
   );
   const order = orderResult.rows[0];

@@ -17,17 +17,20 @@ import { useOrderRoom } from '@/hooks/use-order-room';
 import {
   assignDriver,
   assignSupplier,
+  createDriver,
+  getDrivers,
   getHqOrderById,
   getSuppliers,
   recordDeliveryUpdate,
   recordSupplierContact,
   updateHqOrderStatus,
 } from '@/services/hq-service';
-import { AppIcon, HqOrderDetail, OrderStatus, Supplier } from '@/types';
+import { AppIcon, Driver, HqOrderDetail, OrderStatus, Supplier } from '@/types';
 import { toUserMessage } from '@/utils/format-error';
 import { pluralizeUnit } from '@/types/unit';
 
 const CHECK_ICON: AppIcon = { ios: 'checkmark.circle.fill', android: 'check_circle', web: 'check_circle' };
+const ADD_ICON: AppIcon = { ios: 'plus.circle', android: 'add_circle_outline', web: 'add_circle_outline' };
 
 /** Target-status → button label, driven strictly by ORDER_TRANSITIONS — never hand-listed per screen. */
 const STATUS_ACTION_LABELS: Partial<Record<OrderStatus, string>> = {
@@ -50,9 +53,10 @@ const HISTORY_LABELS: Record<string, string> = {
 interface OrderDetailData {
   order: HqOrderDetail | null;
   suppliers: Supplier[];
+  drivers: Driver[];
 }
 
-const EMPTY_DETAIL: OrderDetailData = { order: null, suppliers: [] };
+const EMPTY_DETAIL: OrderDetailData = { order: null, suppliers: [], drivers: [] };
 
 export default function HqOrderDetailScreen() {
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
@@ -61,12 +65,16 @@ export default function HqOrderDetailScreen() {
   const busyRef = useRef(false);
 
   const fetchDetail = useCallback(async (): Promise<OrderDetailData> => {
-    const [order, suppliers] = await Promise.all([getHqOrderById(orderId), getSuppliers()]);
-    return { order: order ?? null, suppliers };
+    const [order, suppliers, drivers] = await Promise.all([getHqOrderById(orderId), getSuppliers(), getDrivers()]);
+    return { order: order ?? null, suppliers, drivers };
   }, [orderId]);
 
-  const { data, isLoading, error, refetch } = useAsyncData<OrderDetailData>(fetchDetail, EMPTY_DETAIL);
-  const { order, suppliers } = data;
+  const { data, isLoading, error, refetch, setData } = useAsyncData<OrderDetailData>(fetchDetail, EMPTY_DETAIL);
+  const { order, suppliers, drivers } = data;
+
+  function handleDriverCreated(driver: Driver) {
+    setData((prev) => ({ ...prev, drivers: [...prev.drivers, driver] }));
+  }
 
   useOrderRoom(orderId, refetch);
 
@@ -177,7 +185,9 @@ export default function HqOrderDetailScreen() {
         <AssignSupplierForm suppliers={suppliers} orderId={orderId} onDone={refetch} />
       )}
 
-      {canAssignDriver && <AssignDriverForm orderId={orderId} onDone={refetch} />}
+      {canAssignDriver && (
+        <AssignDriverForm drivers={drivers} orderId={orderId} onDone={refetch} onDriverCreated={handleDriverCreated} />
+      )}
 
       {canLogDelivery && <DeliveryUpdateForm orderId={orderId} onDone={refetch} />}
 
@@ -378,15 +388,78 @@ function AssignSupplierForm({
   );
 }
 
-function AssignDriverForm({ orderId, onDone }: { orderId: string; onDone: () => Promise<void> }) {
-  const [driverName, setDriverName] = useState('');
-  const [driverPhone, setDriverPhone] = useState('');
-  const [note, setNote] = useState('');
+/** Mirrors SupplierPicker exactly, plus an inline "add new driver" row at the bottom so HQ never
+ * has to leave the assignment flow to register a driver it hasn't coordinated with before — the
+ * same "don't interrupt the task" reasoning SiteSelector's own "Add new site" row already applies
+ * for a contractor picking a delivery site. */
+function DriverPicker({
+  drivers,
+  selectedId,
+  onSelect,
+  onCreated,
+}: {
+  drivers: Driver[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onCreated: (driver: Driver) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+
+  if (adding) {
+    return (
+      <InlineNewDriverForm
+        onCreated={(driver) => {
+          onCreated(driver);
+          onSelect(driver.id);
+          setAdding(false);
+        }}
+        onCancel={() => setAdding(false)}
+      />
+    );
+  }
+
+  return (
+    <View style={styles.supplierList}>
+      {drivers.map((driver) => {
+        const selected = driver.id === selectedId;
+        return (
+          <Pressable
+            key={driver.id}
+            accessibilityRole="button"
+            onPress={() => onSelect(driver.id)}
+            style={({ pressed }) => pressed && styles.pressed}>
+            <ThemedView type={selected ? 'backgroundSelected' : 'backgroundElement'} style={styles.supplierRow}>
+              <View style={styles.supplierTextWrapper}>
+                <ThemedText type="smallBold">{driver.name}</ThemedText>
+                {driver.phone && (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {driver.phone}
+                  </ThemedText>
+                )}
+              </View>
+              {selected && <SymbolView name={CHECK_ICON} size={18} tintColor={Colors.text} />}
+            </ThemedView>
+          </Pressable>
+        );
+      })}
+      <Pressable accessibilityRole="button" onPress={() => setAdding(true)} style={({ pressed }) => pressed && styles.pressed}>
+        <View style={styles.addDriverRow}>
+          <SymbolView name={ADD_ICON} size={18} tintColor={Colors.text} />
+          <ThemedText type="smallBold">Add new driver</ThemedText>
+        </View>
+      </Pressable>
+    </View>
+  );
+}
+
+function InlineNewDriverForm({ onCreated, onCancel }: { onCreated: (driver: Driver) => void; onCancel: () => void }) {
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const savingRef = useRef(false);
 
-  const canSave = driverName.trim().length > 0;
+  const canSave = name.trim().length > 0;
 
   async function handleSave() {
     if (!canSave) return;
@@ -395,13 +468,56 @@ function AssignDriverForm({ orderId, onDone }: { orderId: string; onDone: () => 
     setSaving(true);
     setError(null);
     try {
-      await assignDriver(orderId, {
-        driverName: driverName.trim(),
-        driverPhone: driverPhone.trim() || undefined,
-        note: note.trim() || undefined,
-      });
-      setDriverName('');
-      setDriverPhone('');
+      const driver = await createDriver({ name: name.trim(), phone: phone.trim() || undefined });
+      onCreated(driver);
+    } catch (err) {
+      setError(toUserMessage(err));
+    } finally {
+      setSaving(false);
+      savingRef.current = false;
+    }
+  }
+
+  return (
+    <View style={styles.section}>
+      <Field label="Driver Name" value={name} onChangeText={setName} placeholder="e.g. Ramesh Kumar" />
+      <Field label="Driver Phone (optional)" value={phone} onChangeText={setPhone} placeholder="+91 ..." />
+      {error && <ErrorBanner message={error} onRetry={handleSave} />}
+      <PrimaryButton label="Add Driver" disabled={!canSave} loading={saving} onPress={handleSave} />
+      <Pressable onPress={onCancel} style={({ pressed }) => pressed && styles.pressed}>
+        <ThemedText type="link" themeColor="textSecondary">
+          Cancel
+        </ThemedText>
+      </Pressable>
+    </View>
+  );
+}
+
+function AssignDriverForm({
+  drivers,
+  orderId,
+  onDone,
+  onDriverCreated,
+}: {
+  drivers: Driver[];
+  orderId: string;
+  onDone: () => Promise<void>;
+  onDriverCreated: (driver: Driver) => void;
+}) {
+  const [driverId, setDriverId] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const savingRef = useRef(false);
+
+  async function handleSave() {
+    if (!driverId) return;
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setError(null);
+    try {
+      await assignDriver(orderId, { driverId, note: note.trim() || undefined });
       setNote('');
       await onDone();
     } catch (err) {
@@ -415,11 +531,10 @@ function AssignDriverForm({ orderId, onDone }: { orderId: string; onDone: () => 
   return (
     <View style={styles.section}>
       <ThemedText type="smallBold">Assign Driver</ThemedText>
-      <Field label="Driver Name" value={driverName} onChangeText={setDriverName} placeholder="e.g. Ramesh Kumar" />
-      <Field label="Driver Phone (optional)" value={driverPhone} onChangeText={setDriverPhone} placeholder="+91 ..." />
+      <DriverPicker drivers={drivers} selectedId={driverId} onSelect={setDriverId} onCreated={onDriverCreated} />
       <Field label="Note (optional)" value={note} onChangeText={setNote} placeholder="Vehicle number, ETA, etc." />
       {error && <ErrorBanner message={error} onRetry={handleSave} />}
-      <PrimaryButton label="Assign Driver" variant="outline" disabled={!canSave} loading={saving} onPress={handleSave} />
+      <PrimaryButton label="Assign Driver" variant="outline" disabled={!driverId} loading={saving} onPress={handleSave} />
     </View>
   );
 }
@@ -502,6 +617,17 @@ const styles = StyleSheet.create({
   supplierTextWrapper: {
     flex: 1,
     gap: Spacing.half,
+  },
+  addDriverRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    padding: Spacing.two,
+    borderRadius: Spacing.two,
+    borderCurve: 'continuous',
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    borderColor: Colors.border,
+    borderStyle: 'dashed',
   },
   pressed: {
     opacity: 0.7,

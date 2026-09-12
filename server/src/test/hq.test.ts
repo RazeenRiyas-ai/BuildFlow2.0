@@ -12,6 +12,7 @@ describe('HQ module', () => {
   let siteId: string;
   let materialId: string;
   let supplierId: string;
+  let driverId: string;
   let orderId: string;
 
   beforeAll(async () => {
@@ -36,11 +37,18 @@ describe('HQ module', () => {
 
     const hqLogin = await request(app).post('/auth/login').send({ phone: '+91 90000 00001', password: 'password123' });
     hqToken = hqLogin.body.accessToken;
+
+    const driverRes = await request(app)
+      .post('/hq/drivers')
+      .set('Authorization', 'Bearer ' + hqToken)
+      .send({ name: 'Ramesh', phone: '+91 90000 55555' });
+    driverId = driverRes.body.id;
   });
 
   afterAll(async () => {
     await pool.query('DELETE FROM orders WHERE site_id = $1', [siteId]);
     await pool.query('DELETE FROM construction_sites WHERE id = $1', [siteId]);
+    await pool.query('DELETE FROM drivers WHERE id = $1', [driverId]);
     await deleteUserByPhone(contractorPhone);
   });
 
@@ -95,7 +103,7 @@ describe('HQ module', () => {
     res = await request(app)
       .post('/hq/orders/' + orderId + '/assign-driver')
       .set('Authorization', 'Bearer ' + hqToken)
-      .send({ driverName: 'Ramesh', driverPhone: '+91 90000 55555' });
+      .send({ driverId });
     expect(res.status).toBe(204);
 
     res = await request(app)
@@ -125,7 +133,9 @@ describe('HQ module', () => {
     const detail = await request(app).get('/hq/orders/' + orderId).set('Authorization', 'Bearer ' + hqToken);
     expect(detail.body.status).toBe('delivered');
     expect(detail.body.assignedSupplierId).toBe(supplierId);
+    expect(detail.body.assignedDriverId).toBe(driverId);
     expect(detail.body.driverName).toBe('Ramesh');
+    expect(detail.body.driverPhone).toBe('+91 90000 55555');
     expect(detail.body.history.length).toBeGreaterThanOrEqual(7);
   });
 
@@ -157,6 +167,7 @@ describe('HQ operational integrity — state validation and concurrency', () => 
   let minOrderQuantity: number;
   let supplierAId: string;
   let supplierBId: string;
+  let driverId: string;
 
   beforeAll(async () => {
     const reg = await request(app)
@@ -182,11 +193,18 @@ describe('HQ operational integrity — state validation and concurrency', () => 
     const suppliers = await request(app).get('/suppliers').set('Authorization', 'Bearer ' + hqToken);
     supplierAId = suppliers.body[0].id;
     supplierBId = suppliers.body[1].id;
+
+    const driverRes = await request(app)
+      .post('/hq/drivers')
+      .set('Authorization', 'Bearer ' + hqToken)
+      .send({ name: 'Race Driver' });
+    driverId = driverRes.body.id;
   });
 
   afterAll(async () => {
     await pool.query('DELETE FROM orders WHERE site_id = $1', [siteId]);
     await pool.query('DELETE FROM construction_sites WHERE id = $1', [siteId]);
+    await pool.query('DELETE FROM drivers WHERE id = $1', [driverId]);
     await deleteUserByPhone(contractorPhone);
   });
 
@@ -226,7 +244,7 @@ describe('HQ operational integrity — state validation and concurrency', () => 
     const res = await request(app)
       .post('/hq/orders/' + id + '/assign-driver')
       .set('Authorization', 'Bearer ' + hqToken)
-      .send({ driverName: 'Too Early' });
+      .send({ driverId });
 
     expect(res.status).toBe(409);
     expect(res.body.code).toBe('ORDER_ACTION_NOT_ALLOWED');
@@ -306,7 +324,7 @@ describe('HQ operational integrity — state validation and concurrency', () => 
       request(app)
         .post('/hq/orders/' + id + '/assign-driver')
         .set('Authorization', 'Bearer ' + hqToken)
-        .send({ driverName: 'Race Driver' }),
+        .send({ driverId }),
       request(app)
         .patch('/hq/orders/' + id + '/status')
         .set('Authorization', 'Bearer ' + hqToken)

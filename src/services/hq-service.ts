@@ -1,5 +1,16 @@
 import { apiClient, ApiError } from '@/services/api-client';
-import { AssignDriverInput, AssignSupplierInput, HqOrderDetail, HqOrderQueueItem, OrderStatus, SupplierContactInput, Supplier } from '@/types';
+import {
+  AssignDriverInput,
+  AssignSupplierInput,
+  CreateDriverInput,
+  Driver,
+  HqOrderDetail,
+  HqOrderQueueItem,
+  OrderStatus,
+  SupplierContactInput,
+  Supplier,
+  UpdateDriverInput,
+} from '@/types';
 
 export async function getHqOrders(status?: OrderStatus): Promise<HqOrderQueueItem[]> {
   const query = status ? '?status=' + status : '';
@@ -37,4 +48,17 @@ export async function recordDeliveryUpdate(orderId: string, note: string): Promi
 
 export async function getSuppliers(): Promise<Supplier[]> {
   return apiClient.get<Supplier[]>('/suppliers');
+}
+
+export async function getDrivers(includeInactive?: boolean): Promise<Driver[]> {
+  const query = includeInactive ? '?includeInactive=true' : '';
+  return apiClient.get<Driver[]>('/hq/drivers' + query);
+}
+
+export async function createDriver(input: CreateDriverInput): Promise<Driver> {
+  return apiClient.post<Driver>('/hq/drivers', input);
+}
+
+export async function updateDriver(driverId: string, input: UpdateDriverInput): Promise<Driver> {
+  return apiClient.patch<Driver>(`/hq/drivers/${driverId}`, input);
 }

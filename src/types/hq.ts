@@ -41,6 +41,7 @@ export interface HqOrderDetail {
   estimatedDeliveryDays: string;
   contractorNote?: string;
   assignedSupplierId?: string;
+  assignedDriverId?: string;
   driverName?: string;
   driverPhone?: string;
   createdAt: string;
@@ -72,7 +73,28 @@ export interface AssignSupplierInput {
 }
 
 export interface AssignDriverInput {
-  driverName: string;
-  driverPhone?: string;
+  driverId: string;
   note?: string;
+}
+
+/** HQ-managed reference entity for delivery coordination — mirrors Supplier's own shape/role, but
+ * has no contractor-facing surface at all (a contractor only ever sees a driver's name/phone via
+ * the snapshot on their own order, never a direct lookup against this list). */
+export interface Driver {
+  id: string;
+  name: string;
+  phone?: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface CreateDriverInput {
+  name: string;
+  phone?: string;
+}
+
+export interface UpdateDriverInput {
+  name?: string;
+  phone?: string | null;
+  isActive?: boolean;
 }

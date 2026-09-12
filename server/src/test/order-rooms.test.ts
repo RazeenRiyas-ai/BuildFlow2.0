@@ -27,6 +27,7 @@ describe('Order rooms + order events (Socket.io)', () => {
   let materialId: string;
   let materialQuantity: number;
   let supplierId: string;
+  let driverId: string;
   let orderId: string;
 
   let httpServer: http.Server;
@@ -56,6 +57,12 @@ describe('Order rooms + order events (Socket.io)', () => {
     const hqLogin = await request(app).post('/auth/login').send({ phone: '+91 90000 00001', password: 'password123' });
     hqToken = hqLogin.body.accessToken;
 
+    const driverRes = await request(app)
+      .post('/hq/drivers')
+      .set('Authorization', 'Bearer ' + hqToken)
+      .send({ name: 'Ramesh', phone: '+91 90000 55555' });
+    driverId = driverRes.body.id;
+
     httpServer = http.createServer(app);
     initRealtime(httpServer);
     await new Promise<void>((resolve) => httpServer.listen(0, resolve));
@@ -68,6 +75,7 @@ describe('Order rooms + order events (Socket.io)', () => {
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     await pool.query('DELETE FROM orders WHERE site_id = $1', [siteId]);
     await pool.query('DELETE FROM construction_sites WHERE id = $1', [siteId]);
+    await pool.query('DELETE FROM drivers WHERE id = $1', [driverId]);
     await deleteUserByPhone(contractorPhone);
     await deleteUserByPhone(otherContractorPhone);
     await pool.end();
@@ -274,7 +282,7 @@ describe('Order rooms + order events (Socket.io)', () => {
       const res = await request(app)
         .post('/hq/orders/' + orderId + '/assign-driver')
         .set('Authorization', 'Bearer ' + hqToken)
-        .send({ driverName: 'Ramesh', driverPhone: '+91 90000 55555' });
+        .send({ driverId });
       expect(res.status).toBe(204);
 
       const payload = await eventPromise;

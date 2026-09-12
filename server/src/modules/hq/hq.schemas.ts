@@ -33,8 +33,7 @@ export const assignSupplierSchema = z.object({
 });
 
 export const assignDriverSchema = z.object({
-  driverName: z.string().trim().min(1).max(200),
-  driverPhone: z.string().trim().max(20).optional(),
+  driverId: z.string().uuid(),
   note: z.string().trim().max(500).optional(),
 });
 

@@ -18,6 +18,8 @@ import {
   reorderPhotosSchema,
   materialPhotoIdParamsSchema,
 } from '../materials/materials.schemas';
+import * as driversController from '../drivers/drivers.controller';
+import { listDriversQuerySchema, createDriverSchema, updateDriverSchema } from '../drivers/drivers.schemas';
 
 export const hqRouter = Router();
 
@@ -66,3 +68,9 @@ hqRouter.delete(
   validate({ params: materialPhotoIdParamsSchema }),
   asyncHandler(materialsAdminController.deletePhoto),
 );
+
+// --- Driver management (Phase 3.4) ---
+hqRouter.get('/drivers', validate({ query: listDriversQuerySchema }), asyncHandler(driversController.list));
+hqRouter.get('/drivers/:id', validate({ params: uuidParamSchema }), asyncHandler(driversController.getById));
+hqRouter.post('/drivers', validate({ body: createDriverSchema }), asyncHandler(driversController.create));
+hqRouter.patch('/drivers/:id', validate({ params: uuidParamSchema, body: updateDriverSchema }), asyncHandler(driversController.update));

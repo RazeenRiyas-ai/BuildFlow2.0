@@ -51,6 +51,7 @@ function toDetailShape(row: any) {
     estimatedDeliveryDays: row.estimated_delivery_days,
     contractorNote: row.contractor_note ?? undefined,
     assignedSupplierId: row.assigned_supplier_id ?? undefined,
+    assignedDriverId: row.assigned_driver_id ?? undefined,
     driverName: row.driver_name ?? undefined,
     driverPhone: row.driver_phone ?? undefined,
     createdAt: row.created_at,

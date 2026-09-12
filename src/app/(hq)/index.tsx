@@ -62,6 +62,9 @@ export default function HqDashboardScreen() {
               <Pressable onPress={() => router.push('/(hq)/materials')}>
                 <ThemedText type="link">Materials</ThemedText>
               </Pressable>
+              <Pressable onPress={() => router.push('/(hq)/drivers')}>
+                <ThemedText type="link">Drivers</ThemedText>
+              </Pressable>
               <Pressable onPress={() => logout()}>
                 <ThemedText type="link">Log Out</ThemedText>
               </Pressable>

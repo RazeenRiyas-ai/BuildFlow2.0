@@ -45,7 +45,10 @@ export function truncateSecret(value: string): string {
   return `${value.slice(0, 6)}…${value.slice(-4)} (len=${value.length})`;
 }
 
-function redact(value: unknown, depth: number): unknown {
+/** Exported (Phase 3.9) so the Sentry integration (observability/sentry.ts) can apply this exact
+ * same key-based redaction to event context before anything leaves the process — one redaction
+ * policy, not two independently-maintained copies of the same regexes. */
+export function redact(value: unknown, depth: number): unknown {
   if (depth > MAX_REDACT_DEPTH) return '[Truncated: max depth exceeded]';
   if (Array.isArray(value)) return value.map((item) => redact(item, depth + 1));
   if (value && typeof value === 'object' && !(value instanceof Error) && !(value instanceof Date)) {

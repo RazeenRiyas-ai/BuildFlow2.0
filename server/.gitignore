@@ -4,3 +4,7 @@ dist/
 .env.test
 uploads/
 uploads-test/
+# Phase 3.9: scripts/backup-db.sh's default output location — a real backup contains real
+# customer/order data and must never be committed. Never remove this line without also changing
+# the script's default output directory.
+backups/

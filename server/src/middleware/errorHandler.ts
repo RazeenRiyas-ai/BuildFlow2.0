@@ -3,6 +3,7 @@ import { ZodError } from 'zod';
 import { AppError } from '../utils/app-error';
 import { ErrorCode } from '../errors/error-codes';
 import { logger } from '../utils/logger';
+import { captureError } from '../observability/sentry';
 
 /**
  * The response body shape is intentionally unchanged from before Phase 2.6.5: `error` (a string
@@ -58,6 +59,11 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
 
   if (err instanceof AppError) {
     logger.warn(err.message, { code: err.code, statusCode: err.statusCode, path: req.path });
+    // Every named AppError subclass today is 4xx (see app-error.ts) — this branch exists so a
+    // future 5xx-shaped AppError is reported without needing another change to this file.
+    if (err.statusCode >= 500) {
+      captureError(err, { tags: { requestId: req.requestId ?? '', path: req.path, method: req.method } });
+    }
     res.status(err.statusCode).json(buildBody(err.message, err.code, err.details, req));
     return;
   }
@@ -76,5 +82,6 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
   }
 
   logger.error(`Unhandled error on ${req.method} ${req.path}`, err, { code: ErrorCode.INTERNAL_ERROR });
+  captureError(err, { tags: { requestId: req.requestId ?? '', path: req.path, method: req.method } });
   res.status(500).json(buildBody('InternalServerError', ErrorCode.INTERNAL_ERROR, undefined, req));
 }

@@ -36,6 +36,18 @@ const envSchema = z.object({
   // minutes — frequent enough that a stuck order is caught reasonably promptly, infrequent enough
   // to never be a meaningful load source.
   STALE_ORDER_REMINDER_CHECK_INTERVAL_MINUTES: z.coerce.number().int().positive().default(30),
+  // How often the cleanup job (jobs/cleanup-job.ts) deletes expired idempotency_keys/refresh_tokens
+  // rows. Default: every 60 minutes — this is pure housekeeping with no user-facing urgency (unlike
+  // the stale-order check above), so a slower cadence is fine.
+  CLEANUP_JOB_INTERVAL_MINUTES: z.coerce.number().int().positive().default(60),
+  // Sentry DSN for error tracking (Phase 3.9). Optional and unset by default: the observability
+  // module (observability/sentry.ts) treats an absent DSN as "error tracking disabled" and never
+  // initializes the SDK — so a missing/misconfigured DSN can never prevent the server from starting.
+  SENTRY_DSN: z.string().optional(),
+  // Tags every captured event so events from different environments are never confused in one
+  // Sentry project. Deliberately free-text (not NODE_ENV, which nothing else in this app reads) —
+  // set explicitly per deployment.
+  SENTRY_ENVIRONMENT: z.string().default('development'),
 });
 
 const parsed = envSchema.safeParse(process.env);

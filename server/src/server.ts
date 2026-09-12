@@ -6,7 +6,13 @@ import { initRealtime } from './realtime/socket-server';
 import { installProcessSafetyHandlers } from './process-safety';
 import { installGracefulShutdown } from './graceful-shutdown';
 import { startStaleOrderReminderJob } from './jobs/stale-order-reminder-job';
+import { startCleanupJob } from './jobs/cleanup-job';
+import { initSentry } from './observability/sentry';
 import { logger } from './utils/logger';
+
+// First statement in the process, deliberately — see observability/sentry.ts's own doc comment
+// for why a missing/invalid SENTRY_DSN can never prevent everything that follows from starting.
+initSentry();
 
 installProcessSafetyHandlers();
 
@@ -21,6 +27,10 @@ installGracefulShutdown({ httpServer, io, pool });
 const stopStaleOrderReminderJob = startStaleOrderReminderJob();
 process.on('SIGTERM', stopStaleOrderReminderJob);
 process.on('SIGINT', stopStaleOrderReminderJob);
+
+const stopCleanupJob = startCleanupJob();
+process.on('SIGTERM', stopCleanupJob);
+process.on('SIGINT', stopCleanupJob);
 
 httpServer.listen(env.PORT, () => {
   logger.info(`BuildFlow server listening on port ${env.PORT}`);

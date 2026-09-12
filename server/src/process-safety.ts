@@ -1,4 +1,5 @@
 import { logger } from './utils/logger';
+import { captureError, flushSentry } from './observability/sentry';
 
 /**
  * Last-resort handlers for genuinely unknown failures — a promise rejection or thrown error that
@@ -16,17 +17,26 @@ import { logger } from './utils/logger';
  * logger.error is used instead of raw console.error purely for structured (name/message/stack)
  * serialization of the failure — it is still a plain synchronous console.error call under the
  * hood (see utils/logger.ts), so this keeps the exact same guarantee the old code had: the log is
- * fully written before process.exit(1) runs on the next line, with no async logging step that
- * could be cut off mid-write.
+ * fully written before process.exit(1) runs, with no async logging step that could be cut off
+ * mid-write.
+ *
+ * Phase 3.9: also reports to Sentry (if configured) before exiting. captureError() itself never
+ * throws (see observability/sentry.ts), and flushSentry() is time-bounded and also never throws —
+ * so exit() below is reached deterministically either way, on the same tick-or-two timeline as
+ * before, never blocked indefinitely by a slow or failing Sentry request. The log line above still
+ * happens synchronously first, exactly as before, so even a Sentry flush that times out has
+ * already lost nothing that wasn't already durably logged.
  */
 export function installProcessSafetyHandlers(): void {
   process.on('unhandledRejection', (reason) => {
     logger.error('[fatal] unhandled promise rejection — terminating for a clean restart', reason);
-    process.exit(1);
+    captureError(reason, { tags: { fatal: 'true', kind: 'unhandledRejection' } });
+    void flushSentry().finally(() => process.exit(1));
   });
 
   process.on('uncaughtException', (err) => {
     logger.error('[fatal] uncaught exception — terminating for a clean restart', err);
-    process.exit(1);
+    captureError(err, { tags: { fatal: 'true', kind: 'uncaughtException' } });
+    void flushSentry().finally(() => process.exit(1));
   });
 }

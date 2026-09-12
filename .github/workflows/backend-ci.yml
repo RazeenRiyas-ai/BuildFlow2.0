@@ -1,0 +1,96 @@
+name: Backend CI
+
+# Phase 3.9: the backend's first automated test gate. Scoped to server/ only — no frontend/Expo
+# build step is included here; the backend is what this phase's CI gate covers (migrations, seed,
+# TypeScript, and the vitest suite), matching the approved Phase 3.9 scope.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [master]
+
+jobs:
+  backend-test:
+    runs-on: ubuntu-latest
+
+    # Matches the Postgres version this project is developed/tested against locally (see
+    # server/docs/backup-restore.md and README for local setup) — not a hard requirement of the
+    # code itself, but keeps CI's behavior representative of the environment every migration and
+    # test was actually written/verified against.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: buildflow_ci_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # A real .env.test file, generated here rather than committed — same shape as the local
+      # server/.env.example, pointed at this job's postgres service container. Test-only secrets:
+      # never used for anything but this ephemeral CI database/JWT signing within this one job run,
+      # so committing them into the workflow file (rather than GitHub encrypted secrets) is
+      # intentional, not an oversight — see docs/backup-restore.md's security notes for the
+      # equivalent reasoning applied to real credentials, which these are not.
+      - name: Write .env.test
+        run: |
+          cat > .env.test <<'EOF'
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/buildflow_ci_test
+          JWT_ACCESS_SECRET=ci-test-access-secret-not-for-production-use
+          JWT_REFRESH_SECRET=ci-test-refresh-secret-not-for-production-use
+          PORT=4000
+          CORS_ORIGIN=*
+          EXPO_PUSH_URL=https://exp.host/--/api/v2/push/send
+          UPLOADS_DIR=uploads-test
+          MAX_PHOTO_UPLOAD_BYTES=8388608
+          MAX_PHOTO_DIMENSION_PX=6000
+          STALE_ORDER_REMINDER_THRESHOLD_MINUTES=240
+          STALE_ORDER_REMINDER_DELIVERY_THRESHOLD_MINUTES=600
+          STALE_ORDER_REMINDER_CHECK_INTERVAL_MINUTES=30
+          CLEANUP_JOB_INTERVAL_MINUTES=60
+          EOF
+
+      - name: Run migrations
+        run: npm run migrate:test:up
+
+      - name: Seed database
+        run: npm run seed:test
+
+      - name: Type-check
+        run: npm run build
+
+      - name: Lint (type-check, no emit)
+        run: npm run lint
+
+      - name: Run backend test suite
+        # --pool=forks --poolOptions.forks.singleFork=true: runs test files serially in one
+        # process rather than vitest's default file-level parallelism. This project's test helper
+        # `uniquePhone()` (src/test/db-helpers.ts) generates phone numbers from
+        # millisecond-resolution timestamps plus a small random suffix — under default parallel
+        # execution, several test files creating users in the same instant can collide on a
+        # real UNIQUE constraint, an observed (if infrequent) source of flakiness unrelated to any
+        # single test's own correctness. Forcing serial execution here is a CI-orchestration choice
+        # only; it changes nothing about the application or test code itself.
+        run: npx dotenv -e .env.test -- npx vitest run --pool=forks --poolOptions.forks.singleFork=true

@@ -3,6 +3,7 @@ import {
   AssignDriverInput,
   AssignSupplierInput,
   CreateDriverInput,
+  CreateSupplierInput,
   Driver,
   HqOrderDetail,
   HqOrderQueueItem,
@@ -10,6 +11,7 @@ import {
   SupplierContactInput,
   Supplier,
   UpdateDriverInput,
+  UpdateSupplierInput,
 } from '@/types';
 
 export async function getHqOrders(status?: OrderStatus): Promise<HqOrderQueueItem[]> {
@@ -46,8 +48,17 @@ export async function recordDeliveryUpdate(orderId: string, note: string): Promi
   await apiClient.post<void>(`/hq/orders/${orderId}/delivery-update`, { note });
 }
 
-export async function getSuppliers(): Promise<Supplier[]> {
-  return apiClient.get<Supplier[]>('/suppliers');
+export async function getSuppliers(includeInactive?: boolean): Promise<Supplier[]> {
+  const query = includeInactive ? '?includeInactive=true' : '';
+  return apiClient.get<Supplier[]>('/suppliers' + query);
+}
+
+export async function createSupplier(input: CreateSupplierInput): Promise<Supplier> {
+  return apiClient.post<Supplier>('/suppliers', input);
+}
+
+export async function updateSupplier(supplierId: string, input: UpdateSupplierInput): Promise<Supplier> {
+  return apiClient.patch<Supplier>(`/suppliers/${supplierId}`, input);
 }
 
 export async function getDrivers(includeInactive?: boolean): Promise<Driver[]> {

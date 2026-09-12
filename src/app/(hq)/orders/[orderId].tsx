@@ -18,6 +18,7 @@ import {
   assignDriver,
   assignSupplier,
   createDriver,
+  createSupplier,
   getDrivers,
   getHqOrderById,
   getSuppliers,
@@ -74,6 +75,10 @@ export default function HqOrderDetailScreen() {
 
   function handleDriverCreated(driver: Driver) {
     setData((prev) => ({ ...prev, drivers: [...prev.drivers, driver] }));
+  }
+
+  function handleSupplierCreated(supplier: Supplier) {
+    setData((prev) => ({ ...prev, suppliers: [...prev.suppliers, supplier] }));
   }
 
   useOrderRoom(orderId, refetch);
@@ -178,11 +183,21 @@ export default function HqOrderDetailScreen() {
       )}
 
       {canContactSupplier && (
-        <SupplierContactForm suppliers={suppliers} orderId={orderId} onDone={refetch} />
+        <SupplierContactForm
+          suppliers={suppliers}
+          orderId={orderId}
+          onDone={refetch}
+          onSupplierCreated={handleSupplierCreated}
+        />
       )}
 
       {canAssignSupplier && (
-        <AssignSupplierForm suppliers={suppliers} orderId={orderId} onDone={refetch} />
+        <AssignSupplierForm
+          suppliers={suppliers}
+          orderId={orderId}
+          onDone={refetch}
+          onSupplierCreated={handleSupplierCreated}
+        />
       )}
 
       {canAssignDriver && (
@@ -225,15 +240,36 @@ export default function HqOrderDetailScreen() {
   );
 }
 
+/** Mirrors DriverPicker exactly, plus an inline "add new supplier" row at the bottom so HQ never
+ * has to leave the contact/assignment flow to register a supplier it hasn't coordinated with
+ * before — the same "don't interrupt the task" reasoning SiteSelector's own "Add new site" row
+ * already applies for a contractor picking a delivery site. */
 function SupplierPicker({
   suppliers,
   selectedId,
   onSelect,
+  onCreated,
 }: {
   suppliers: Supplier[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onCreated: (supplier: Supplier) => void;
 }) {
+  const [adding, setAdding] = useState(false);
+
+  if (adding) {
+    return (
+      <InlineNewSupplierForm
+        onCreated={(supplier) => {
+          onCreated(supplier);
+          onSelect(supplier.id);
+          setAdding(false);
+        }}
+        onCancel={() => setAdding(false)}
+      />
+    );
+  }
+
   return (
     <View style={styles.supplierList}>
       {suppliers.map((supplier) => {
@@ -256,6 +292,55 @@ function SupplierPicker({
           </Pressable>
         );
       })}
+      <Pressable accessibilityRole="button" onPress={() => setAdding(true)} style={({ pressed }) => pressed && styles.pressed}>
+        <View style={styles.addDriverRow}>
+          <SymbolView name={ADD_ICON} size={18} tintColor={Colors.text} />
+          <ThemedText type="smallBold">Add new supplier</ThemedText>
+        </View>
+      </Pressable>
+    </View>
+  );
+}
+
+function InlineNewSupplierForm({ onCreated, onCancel }: { onCreated: (supplier: Supplier) => void; onCancel: () => void }) {
+  const [name, setName] = useState('');
+  const [locality, setLocality] = useState('');
+  const [phone, setPhone] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const savingRef = useRef(false);
+
+  const canSave = name.trim().length > 0 && locality.trim().length > 0;
+
+  async function handleSave() {
+    if (!canSave) return;
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setError(null);
+    try {
+      const supplier = await createSupplier({ name: name.trim(), locality: locality.trim(), phone: phone.trim() || undefined });
+      onCreated(supplier);
+    } catch (err) {
+      setError(toUserMessage(err));
+    } finally {
+      setSaving(false);
+      savingRef.current = false;
+    }
+  }
+
+  return (
+    <View style={styles.section}>
+      <Field label="Supplier Name" value={name} onChangeText={setName} placeholder="e.g. Balaji Hardware" />
+      <Field label="Locality" value={locality} onChangeText={setLocality} placeholder="e.g. Wagholi" />
+      <Field label="Supplier Phone (optional)" value={phone} onChangeText={setPhone} placeholder="+91 ..." />
+      {error && <ErrorBanner message={error} onRetry={handleSave} />}
+      <PrimaryButton label="Add Supplier" disabled={!canSave} loading={saving} onPress={handleSave} />
+      <Pressable onPress={onCancel} style={({ pressed }) => pressed && styles.pressed}>
+        <ThemedText type="link" themeColor="textSecondary">
+          Cancel
+        </ThemedText>
+      </Pressable>
     </View>
   );
 }
@@ -291,10 +376,12 @@ function SupplierContactForm({
   suppliers,
   orderId,
   onDone,
+  onSupplierCreated,
 }: {
   suppliers: Supplier[];
   orderId: string;
   onDone: () => Promise<void>;
+  onSupplierCreated: (supplier: Supplier) => void;
 }) {
   const [supplierId, setSupplierId] = useState<string | null>(null);
   const [contactMethod, setContactMethod] = useState('');
@@ -334,7 +421,7 @@ function SupplierContactForm({
   return (
     <View style={styles.section}>
       <ThemedText type="smallBold">Log Supplier Contact</ThemedText>
-      <SupplierPicker suppliers={suppliers} selectedId={supplierId} onSelect={setSupplierId} />
+      <SupplierPicker suppliers={suppliers} selectedId={supplierId} onSelect={setSupplierId} onCreated={onSupplierCreated} />
       <Field label="Contact Method" value={contactMethod} onChangeText={setContactMethod} placeholder="e.g. Phone call" />
       <Field label="Outcome" value={outcome} onChangeText={setOutcome} placeholder="e.g. Confirmed availability" />
       <Field label="Note (optional)" value={note} onChangeText={setNote} placeholder="Additional detail" />
@@ -348,10 +435,12 @@ function AssignSupplierForm({
   suppliers,
   orderId,
   onDone,
+  onSupplierCreated,
 }: {
   suppliers: Supplier[];
   orderId: string;
   onDone: () => Promise<void>;
+  onSupplierCreated: (supplier: Supplier) => void;
 }) {
   const [supplierId, setSupplierId] = useState<string | null>(null);
   const [note, setNote] = useState('');
@@ -380,7 +469,7 @@ function AssignSupplierForm({
   return (
     <View style={styles.section}>
       <ThemedText type="smallBold">Assign Supplier</ThemedText>
-      <SupplierPicker suppliers={suppliers} selectedId={supplierId} onSelect={setSupplierId} />
+      <SupplierPicker suppliers={suppliers} selectedId={supplierId} onSelect={setSupplierId} onCreated={onSupplierCreated} />
       <Field label="Note (optional)" value={note} onChangeText={setNote} placeholder="Additional detail" />
       {error && <ErrorBanner message={error} onRetry={handleSave} />}
       <PrimaryButton label="Assign Supplier" variant="outline" disabled={!supplierId} loading={saving} onPress={handleSave} />

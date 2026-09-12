@@ -105,7 +105,12 @@ export async function recordSupplierContact(orderId: string, actorUserId: string
   await withTransaction(async (client) => {
     await lockOrderForAction(client, orderId, HQ_ACTION_ALLOWED_STATUSES.supplierContact, 'log a supplier contact');
 
-    const supplierResult = await client.query('SELECT id FROM suppliers WHERE id = $1', [input.supplierId]);
+    // Only an active supplier may be freshly contacted (Phase 3.5) — mirrors assignDriver's own
+    // "inactive is treated as not-found" rule. This is purely a gate on NEW actions: suppliers are
+    // never snapshotted onto an order (unlike drivers), so this has no bearing on any already-
+    // recorded history row, which keeps referencing this same supplier_id regardless of its
+    // current active status.
+    const supplierResult = await client.query('SELECT id FROM suppliers WHERE id = $1 AND is_active = true', [input.supplierId]);
     if (!supplierResult.rows[0]) throw new NotFoundError('Supplier not found', ErrorCode.SUPPLIER_NOT_FOUND);
 
     await client.query(
@@ -129,7 +134,11 @@ export async function assignSupplier(orderId: string, actorUserId: string, input
   await withTransaction(async (client) => {
     await lockOrderForAction(client, orderId, HQ_ACTION_ALLOWED_STATUSES.assignSupplier, 'assign a supplier');
 
-    const supplierResult = await client.query('SELECT id FROM suppliers WHERE id = $1', [input.supplierId]);
+    // Same "active only" gate as recordSupplierContact above. assigned_supplier_id remains a live
+    // pointer, not a snapshot — if this supplier is later deactivated, this order's
+    // assigned_supplier_id is untouched and continues to resolve to this same supplier row
+    // whenever HQ looks it up, exactly as it always has.
+    const supplierResult = await client.query('SELECT id FROM suppliers WHERE id = $1 AND is_active = true', [input.supplierId]);
     if (!supplierResult.rows[0]) throw new NotFoundError('Supplier not found', ErrorCode.SUPPLIER_NOT_FOUND);
 
     await client.query('UPDATE orders SET assigned_supplier_id = $1, updated_at = now() WHERE id = $2', [input.supplierId, orderId]);

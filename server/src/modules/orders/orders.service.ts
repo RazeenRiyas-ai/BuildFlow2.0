@@ -1,7 +1,7 @@
 import { pool, withTransaction } from '../../config/db';
 import { NotFoundError, ConflictError, AppError } from '../../utils/app-error';
 import { ErrorCode } from '../../errors/error-codes';
-import { sendPushToHqDevices, sendOrderStatusPushToContractor } from '../push/push.service';
+import { sendPushToHqDevices, sendOrderStatusPushToContractor, sendStaleOrderReminderToHqDevices } from '../push/push.service';
 import { emitOrderStatusChanged } from '../../realtime/order-events';
 import { logger } from '../../utils/logger';
 import { runIdempotentOperation, IDEMPOTENCY_SCOPES } from '../../idempotency/idempotency';
@@ -50,6 +50,63 @@ export const HQ_ACTION_ALLOWED_STATUSES: Record<
   assignDriver: ['supplier_confirmed', 'driver_assigned'],
   deliveryUpdate: ['driver_assigned', 'out_for_delivery'],
 };
+
+/** The two statuses an order can silently stall in with no further contractor- or HQ-initiated
+ * action ever guaranteed to happen next — 'requested' (HQ hasn't yet logged a first supplier
+ * contact) and 'supplier_rejected' (HQ hasn't yet re-contacted a different supplier). Every other
+ * status either has a human actively driving it forward or is terminal. */
+const STALE_REMINDER_STATUSES: readonly OrderStatus[] = ['requested', 'supplier_rejected'];
+
+export interface StaleOrderReminderResult {
+  remindedOrderIds: string[];
+}
+
+/**
+ * Atomically claims every order that has been sitting in STALE_REMINDER_STATUSES for at least
+ * `thresholdMinutes` since its last update AND hasn't already been reminded since that same last
+ * update, then fires one HQ push per claimed order.
+ *
+ * The claim is a single UPDATE ... RETURNING (not a SELECT followed by a separate UPDATE): this is
+ * what makes it safe under concurrent/overlapping invocations (two ticks of the reminder job
+ * racing, or — if this process is ever scaled to more than one instance — two processes racing).
+ * Postgres row-locks each matching row for the duration of the UPDATE; a second transaction that
+ * reaches the same row blocks until the first commits, then re-evaluates the WHERE clause against
+ * the now-committed row, where stale_reminder_sent_at no longer satisfies "NULL or older than
+ * updated_at" — so it can never double-claim a row the first transaction already claimed.
+ *
+ * The dedup marker is `stale_reminder_sent_at` compared against `updated_at`, not a one-time
+ * "already reminded ever" flag: every existing HQ action on an order already bumps `updated_at`
+ * (see lockOrderForAction's callers and transitionOrderStatus), so any real progress on a
+ * previously-reminded order naturally makes it eligible for a fresh reminder if it later stalls
+ * again — without this job needing any awareness of what HQ did.
+ *
+ * This is database-backed by design (not an in-memory cache) so dedup state survives every server
+ * restart/deployment: a redeploy can never cause either a duplicate reminder for an order already
+ * reminded since its last change, or a lost reminder for one that hasn't been.
+ */
+export async function sendStaleOrderReminders(thresholdMinutes: number): Promise<StaleOrderReminderResult> {
+  const result = await pool.query<{ id: string; site_label: string; status: OrderStatus }>(
+    `UPDATE orders
+     SET stale_reminder_sent_at = now()
+     WHERE status = ANY($2::order_status[])
+       AND updated_at < now() - make_interval(mins => $1::int)
+       AND (stale_reminder_sent_at IS NULL OR stale_reminder_sent_at < updated_at)
+     RETURNING id, site_label, status`,
+    [thresholdMinutes, STALE_REMINDER_STATUSES],
+  );
+
+  for (const row of result.rows) {
+    // Fire-and-forget, exactly like every other push call site in this module — never awaited in
+    // a way that could let one slow/failing device delay claiming the next stale order, and never
+    // able to undo the claim above even if it fails (sendStaleOrderReminderToHqDevices itself
+    // never throws, matching sendPushToHqDevices/sendOrderStatusPushToContractor's own contract).
+    sendStaleOrderReminderToHqDevices({ id: row.id, siteLabel: row.site_label, status: row.status }).catch((err) =>
+      logger.error('sendStaleOrderReminderToHqDevices failed', err, { orderId: row.id }),
+    );
+  }
+
+  return { remindedOrderIds: result.rows.map((row) => row.id) };
+}
 
 interface CreateOrderItemInput {
   materialId: string;
@@ -257,8 +314,13 @@ export async function getOrderForContractor(contractorId: string, orderId: strin
     [orderId],
   );
 
+  // contact_method/outcome included (Phase 3.6) so a contractor whose order bounces through
+  // supplier_rejected can see HQ's own reason (e.g. "Phone call · Out of stock"), not just a bare
+  // status change. Deliberately still excludes supplier_id/carrier_info/actor_user_id — this is
+  // the same privacy boundary as before, just no longer withholding the two fields that actually
+  // explain what happened.
   const historyResult = await pool.query(
-    'SELECT id, type, from_status, to_status, note, created_at FROM order_status_history WHERE order_id = $1 ORDER BY created_at ASC',
+    'SELECT id, type, from_status, to_status, contact_method, outcome, note, created_at FROM order_status_history WHERE order_id = $1 ORDER BY created_at ASC',
     [orderId],
   );
 

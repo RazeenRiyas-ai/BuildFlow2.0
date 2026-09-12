@@ -225,6 +225,47 @@ describe('Orders', () => {
     });
   });
 
+  describe('contractor visibility into supplier-contact outcomes (Phase 3.6)', () => {
+    let orderId: string;
+    let supplierId: string;
+
+    beforeAll(async () => {
+      const materials = await request(app).get('/materials');
+      supplierId = materials.body[0].supplierId;
+
+      const res = await request(app)
+        .post('/orders')
+        .set('Authorization', 'Bearer ' + tokenA)
+        .send({ siteId: siteAId, items: [{ materialId: inStockMaterialId, quantity: minOrderQuantity }] });
+      orderId = res.body.id;
+    });
+
+    it('shows the contractor the contact method and outcome HQ logged, but not the supplier id', async () => {
+      await request(app)
+        .post('/hq/orders/' + orderId + '/supplier-contact')
+        .set('Authorization', 'Bearer ' + hqToken)
+        .send({ supplierId, contactMethod: 'Phone call', outcome: 'Out of stock' });
+
+      const res = await request(app).get('/orders/' + orderId).set('Authorization', 'Bearer ' + tokenA);
+      expect(res.status).toBe(200);
+      const contactEntry = res.body.history.find((h: any) => h.type === 'supplier_contact');
+      expect(contactEntry).toBeTruthy();
+      expect(contactEntry.contactMethod).toBe('Phone call');
+      expect(contactEntry.outcome).toBe('Out of stock');
+      expect(contactEntry).not.toHaveProperty('supplierId');
+      expect(contactEntry).not.toHaveProperty('carrierInfo');
+      expect(contactEntry).not.toHaveProperty('actorUserId');
+    });
+
+    it('still withholds these fields on entry types that never had them (a bare status change)', async () => {
+      const res = await request(app).get('/orders/' + orderId).set('Authorization', 'Bearer ' + tokenA);
+      const statusChangeEntry = res.body.history.find((h: any) => h.type === 'status_change');
+      expect(statusChangeEntry).toBeTruthy();
+      expect(statusChangeEntry.contactMethod).toBeUndefined();
+      expect(statusChangeEntry.outcome).toBeUndefined();
+    });
+  });
+
   describe('Multi-item orders (Phase 3.3)', () => {
     it('creates a single order with all items for one material and one quantity — the one-item case, still exactly as before', async () => {
       const res = await request(app)

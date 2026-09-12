@@ -60,6 +60,11 @@ function toOrderDetailShape(row: any) {
       type: h.type,
       fromStatus: h.from_status ?? undefined,
       toStatus: h.to_status ?? undefined,
+      // contactMethod/outcome (Phase 3.6): the same fields HQ has always seen on this entry type,
+      // now also shown to the contractor so a supplier_rejected order isn't a bare, unexplained
+      // status change. supplierId/carrierInfo/actorUserId remain HQ-only, unchanged.
+      contactMethod: h.contact_method ?? undefined,
+      outcome: h.outcome ?? undefined,
       note: h.note ?? undefined,
       createdAt: h.created_at,
     })),

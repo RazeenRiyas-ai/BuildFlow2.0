@@ -22,6 +22,11 @@ export interface OrderHistoryEntry {
   type: 'status_change' | 'supplier_contact' | 'supplier_assigned' | 'driver_assigned' | 'delivery_update';
   fromStatus?: OrderStatus;
   toStatus?: OrderStatus;
+  /** HQ's own record of how a supplier was reached and what came of it — present on
+   * 'supplier_contact' entries (Phase 3.6), so a supplier_rejected order isn't a bare, unexplained
+   * status change. */
+  contactMethod?: string;
+  outcome?: string;
   note?: string;
   createdAt: string;
 }

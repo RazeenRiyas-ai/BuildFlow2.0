@@ -182,6 +182,11 @@ export default function OrderStatusScreen() {
                     {new Date(entry.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                   </ThemedText>
                 </View>
+                {entry.contactMethod && (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {entry.contactMethod} · {entry.outcome}
+                  </ThemedText>
+                )}
                 {entry.note && (
                   <ThemedText type="small" themeColor="textSecondary">
                     {entry.note}

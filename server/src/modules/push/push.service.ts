@@ -142,6 +142,48 @@ export async function sendPushToHqDevices(order: OrderForPush) {
   }
 }
 
+interface StaleOrderForReminder {
+  id: string;
+  siteLabel: string;
+  status: OrderStatus;
+}
+
+/** Copy for the two statuses the stale-order reminder job (orders.service.ts's
+ * sendStaleOrderReminders) ever fires for — see that function's own STALE_REMINDER_STATUSES. */
+const STALE_ORDER_STATUS_DETAIL: Partial<Record<OrderStatus, string>> = {
+  requested: 'still needs a supplier contacted',
+  supplier_rejected: 'still needs another supplier found',
+};
+
+/**
+ * Never throws — same guarantee as sendPushToHqDevices/sendOrderStatusPushToContractor. Called
+ * fire-and-forget by sendStaleOrderReminders, strictly after that function's own claiming UPDATE
+ * has already committed — a failed/slow push here can never affect whether the reminder was
+ * correctly recorded as sent (see that function's own doc comment on why the claim itself is what
+ * makes dedup safe, independent of push delivery).
+ */
+export async function sendStaleOrderReminderToHqDevices(order: StaleOrderForReminder): Promise<void> {
+  try {
+    const result = await pool.query<{ expo_push_token: string }>(
+      `SELECT pt.expo_push_token
+       FROM push_tokens pt
+       JOIN users u ON u.id = pt.user_id
+       WHERE u.role IN ('hq_staff', 'hq_admin')`,
+    );
+    const tokens = result.rows.map((row) => row.expo_push_token);
+    if (tokens.length === 0) return;
+
+    const detail = STALE_ORDER_STATUS_DETAIL[order.status] ?? 'has had no activity in a while';
+    await sendExpoPush(tokens, {
+      title: 'Order needs attention',
+      body: `${order.siteLabel} ${detail}.`,
+      data: { type: 'order_stale_reminder', orderId: order.id },
+    });
+  } catch (err) {
+    logger.error('sendStaleOrderReminderToHqDevices failed', err, { orderId: order.id });
+  }
+}
+
 /**
  * Copy for every order-status transition worth interrupting a contractor for. Deliberately not
  * every entry in OrderStatus: 'requested' has no entry (the contractor is already looking at the

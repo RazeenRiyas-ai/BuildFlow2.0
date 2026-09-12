@@ -20,7 +20,10 @@ export function startStaleOrderReminderJob(): () => void {
 
   async function tick(): Promise<void> {
     try {
-      const { remindedOrderIds } = await sendStaleOrderReminders(env.STALE_ORDER_REMINDER_THRESHOLD_MINUTES);
+      const { remindedOrderIds } = await sendStaleOrderReminders(
+        env.STALE_ORDER_REMINDER_THRESHOLD_MINUTES,
+        env.STALE_ORDER_REMINDER_DELIVERY_THRESHOLD_MINUTES,
+      );
       if (remindedOrderIds.length > 0) {
         logger.info('[stale-order-reminder] sent reminders', { count: remindedOrderIds.length });
       }
@@ -39,6 +42,7 @@ export function startStaleOrderReminderJob(): () => void {
 
   logger.info('[stale-order-reminder] job started', {
     thresholdMinutes: env.STALE_ORDER_REMINDER_THRESHOLD_MINUTES,
+    deliveryThresholdMinutes: env.STALE_ORDER_REMINDER_DELIVERY_THRESHOLD_MINUTES,
     checkIntervalMinutes: env.STALE_ORDER_REMINDER_CHECK_INTERVAL_MINUTES,
   });
 

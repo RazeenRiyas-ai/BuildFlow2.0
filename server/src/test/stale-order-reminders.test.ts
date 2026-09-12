@@ -168,6 +168,56 @@ describe('sendStaleOrderReminders (Phase 3.6)', () => {
     },
   );
 
+  // Phase 3.8: driver_assigned/out_for_delivery now check against a separate, longer threshold
+  // than the earlier HQ-coordination statuses — a delivery run can legitimately take far longer
+  // than an HQ coordination step without anything having actually stalled. sendStaleOrderReminders
+  // takes an optional second `deliveryMinutes` argument for this (defaulting to the first argument
+  // when omitted, so every call above this point is unaffected).
+  describe('differentiated dispatch-tier threshold (Phase 3.8)', () => {
+    it.each(['driver_assigned', 'out_for_delivery'] as const)(
+      'does not remind an order stuck in %s once it exceeds the standard threshold but not the longer delivery threshold',
+      async (status) => {
+        vi.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { status: 200 }));
+        const orderId = await createOrder();
+        // 5 hours (300 min) clears a 240-min standard threshold but not a 600-min delivery threshold.
+        await backdate(orderId, { status, updatedAtHoursAgo: 5, staleReminderSentAtHoursAgo: null });
+
+        const { remindedOrderIds } = await sendStaleOrderReminders(240, 600);
+        expect(remindedOrderIds).not.toContain(orderId);
+      },
+    );
+
+    it.each(['driver_assigned', 'out_for_delivery'] as const)(
+      'still reminds an order stuck in %s once it exceeds the longer delivery threshold',
+      async (status) => {
+        vi.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { status: 200 }));
+        const orderId = await createOrder();
+        await backdate(orderId, { status, updatedAtHoursAgo: 11, staleReminderSentAtHoursAgo: null });
+
+        const { remindedOrderIds } = await sendStaleOrderReminders(240, 600);
+        expect(remindedOrderIds).toContain(orderId);
+      },
+    );
+
+    it('still reminds a standard-tier order (e.g. supplier_confirmed) using the standard threshold, unaffected by a longer delivery threshold', async () => {
+      vi.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { status: 200 }));
+      const orderId = await createOrder();
+      await backdate(orderId, { status: 'supplier_confirmed', updatedAtHoursAgo: 5, staleReminderSentAtHoursAgo: null });
+
+      const { remindedOrderIds } = await sendStaleOrderReminders(240, 600);
+      expect(remindedOrderIds).toContain(orderId);
+    });
+
+    it('defaults the delivery threshold to the standard threshold when omitted, preserving pre-Phase-3.8 behavior', async () => {
+      vi.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { status: 200 }));
+      const orderId = await createOrder();
+      await backdate(orderId, { status: 'driver_assigned', updatedAtHoursAgo: 5, staleReminderSentAtHoursAgo: null });
+
+      const { remindedOrderIds } = await sendStaleOrderReminders(240);
+      expect(remindedOrderIds).toContain(orderId);
+    });
+  });
+
   it('records a stale_reminder history entry alongside the claim (Phase 3.7)', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { status: 200 }));
     const orderId = await createOrder();

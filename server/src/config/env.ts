@@ -20,12 +20,18 @@ const envSchema = z.object({
   // Guards against a decompression-bomb-shaped image (tiny file, enormous pixel dimensions) that
   // would be cheap to upload but expensive for every client that ever renders it.
   MAX_PHOTO_DIMENSION_PX: z.coerce.number().int().positive().default(6000),
-  // How long an order may sit in 'requested' or 'supplier_rejected' with no further action before
-  // the stale-order reminder job (jobs/stale-order-reminder-job.ts) treats it as stuck and reminds
-  // HQ. Measured against orders.updated_at, which every existing HQ action already bumps — so any
-  // real progress on the order naturally resets this clock without the job needing its own
-  // separate tracking. Default: 4 hours.
+  // How long an order may sit in one of the HQ-coordination statuses (requested,
+  // supplier_contacted, supplier_rejected, supplier_confirmed) with no further action before the
+  // stale-order reminder job (jobs/stale-order-reminder-job.ts) treats it as stuck and reminds HQ.
+  // Measured against orders.updated_at, which every existing HQ action already bumps — so any real
+  // progress on the order naturally resets this clock without the job needing its own separate
+  // tracking. Default: 4 hours. Phase 3.8: split from the dispatch tier below, since a legitimately
+  // long delivery run was previously false-flagged by this same short threshold.
   STALE_ORDER_REMINDER_THRESHOLD_MINUTES: z.coerce.number().int().positive().default(240),
+  // Same mechanism as above, but for the dispatch tier (driver_assigned, out_for_delivery) —
+  // deliberately longer, since a delivery run can legitimately run for hours without that meaning
+  // anything has stalled. Default: 10 hours.
+  STALE_ORDER_REMINDER_DELIVERY_THRESHOLD_MINUTES: z.coerce.number().int().positive().default(600),
   // How often the stale-order reminder job checks for newly-stuck orders. Default: every 30
   // minutes — frequent enough that a stuck order is caught reasonably promptly, infrequent enough
   // to never be a meaningful load source.

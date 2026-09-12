@@ -148,11 +148,18 @@ interface StaleOrderForReminder {
   status: OrderStatus;
 }
 
-/** Copy for the two statuses the stale-order reminder job (orders.service.ts's
- * sendStaleOrderReminders) ever fires for — see that function's own STALE_REMINDER_STATUSES. */
+/** Copy for every status the stale-order reminder job (orders.service.ts's
+ * sendStaleOrderReminders) can fire for — see that function's own STALE_REMINDER_STATUSES_STANDARD
+ * / STALE_REMINDER_STATUSES_DELIVERY. Phase 3.6 only covered the first two entries; Phase 3.7
+ * widened the trigger to all six statuses below but left this copy map unfilled, so the other four
+ * silently fell back to a generic message — filled in here (Phase 3.8). */
 const STALE_ORDER_STATUS_DETAIL: Partial<Record<OrderStatus, string>> = {
   requested: 'still needs a supplier contacted',
+  supplier_contacted: 'is still waiting on a supplier response',
   supplier_rejected: 'still needs another supplier found',
+  supplier_confirmed: 'still needs a driver assigned',
+  driver_assigned: 'has a driver assigned but is not yet out for delivery',
+  out_for_delivery: 'is out for delivery but has not yet been marked delivered',
 };
 
 /**

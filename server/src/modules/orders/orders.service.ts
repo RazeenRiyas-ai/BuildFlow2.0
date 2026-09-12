@@ -54,29 +54,39 @@ export const HQ_ACTION_ALLOWED_STATUSES: Record<
 /**
  * Every non-terminal status — i.e. every status an order can silently stall in with no further
  * contractor- or HQ-initiated action ever guaranteed to happen next. Phase 3.6 originally covered
- * only 'requested'/'supplier_rejected'; Phase 3.7 widens this to the complete set, since
+ * only 'requested'/'supplier_rejected'; Phase 3.7 widened this to the complete set, since
  * 'supplier_contacted' (HQ awaiting a supplier's response), 'supplier_confirmed' (confirmed but no
  * driver ever assigned), and 'driver_assigned'/'out_for_delivery' (dispatched but never marked
  * delivered) are exactly as capable of silently stalling forever. Only 'delivered' and 'cancelled'
  * are excluded — both are terminal, so there is nothing left to stall.
+ *
+ * Split into two tiers (Phase 3.8): the HQ-coordination tier and the dispatch tier are checked
+ * against different thresholds (see sendStaleOrderReminders), because a delivery run can
+ * legitimately take far longer than an HQ coordination step without anything having stalled —
+ * Phase 3.7 applied one uniform threshold to both and false-flagged normal-length deliveries.
  */
-const STALE_REMINDER_STATUSES: readonly OrderStatus[] = [
+const STALE_REMINDER_STATUSES_STANDARD: readonly OrderStatus[] = [
   'requested',
   'supplier_contacted',
   'supplier_rejected',
   'supplier_confirmed',
-  'driver_assigned',
-  'out_for_delivery',
 ];
+
+const STALE_REMINDER_STATUSES_DELIVERY: readonly OrderStatus[] = ['driver_assigned', 'out_for_delivery'];
 
 export interface StaleOrderReminderResult {
   remindedOrderIds: string[];
 }
 
 /**
- * Atomically claims every order that has been sitting in STALE_REMINDER_STATUSES for at least
- * `thresholdMinutes` since its last update AND hasn't already been reminded since that same last
- * update, then fires one HQ push per claimed order.
+ * Atomically claims every order that has been sitting in STALE_REMINDER_STATUSES_STANDARD for at
+ * least `standardMinutes`, or in STALE_REMINDER_STATUSES_DELIVERY for at least `deliveryMinutes`,
+ * since its last update — AND hasn't already been reminded since that same last update — then
+ * fires one HQ push per claimed order.
+ *
+ * `deliveryMinutes` defaults to `standardMinutes` when omitted, so every existing call site (and
+ * every pre-Phase-3.8 caller/test) keeps behaving exactly as before unless it opts into a
+ * different dispatch-tier threshold.
  *
  * The claim is a single UPDATE ... RETURNING (not a SELECT followed by a separate UPDATE): this is
  * what makes it safe under concurrent/overlapping invocations (two ticks of the reminder job
@@ -101,22 +111,28 @@ export interface StaleOrderReminderResult {
  * has a matching history row, and vice versa), even though the push send itself stays outside the
  * transaction and fire-and-forget, per this module's existing convention.
  */
-export async function sendStaleOrderReminders(thresholdMinutes: number): Promise<StaleOrderReminderResult> {
+export async function sendStaleOrderReminders(
+  standardMinutes: number,
+  deliveryMinutes: number = standardMinutes,
+): Promise<StaleOrderReminderResult> {
   const claimed = await withTransaction(async (client) => {
     const result = await client.query<{ id: string; site_label: string; status: OrderStatus }>(
       `UPDATE orders
        SET stale_reminder_sent_at = now()
-       WHERE status = ANY($2::order_status[])
-         AND updated_at < now() - make_interval(mins => $1::int)
+       WHERE (
+         (status = ANY($3::order_status[]) AND updated_at < now() - make_interval(mins => $1::int))
+         OR (status = ANY($4::order_status[]) AND updated_at < now() - make_interval(mins => $2::int))
+       )
          AND (stale_reminder_sent_at IS NULL OR stale_reminder_sent_at < updated_at)
        RETURNING id, site_label, status`,
-      [thresholdMinutes, STALE_REMINDER_STATUSES],
+      [standardMinutes, deliveryMinutes, STALE_REMINDER_STATUSES_STANDARD, STALE_REMINDER_STATUSES_DELIVERY],
     );
 
     for (const row of result.rows) {
+      const thresholdApplied = STALE_REMINDER_STATUSES_DELIVERY.includes(row.status) ? deliveryMinutes : standardMinutes;
       await client.query(
         `INSERT INTO order_status_history (order_id, type, note) VALUES ($1, 'stale_reminder', $2)`,
-        [row.id, `No progress for at least ${thresholdMinutes} minutes while ${row.status}.`],
+        [row.id, `No progress for at least ${thresholdApplied} minutes while ${row.status}.`],
       );
     }
 

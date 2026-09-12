@@ -142,13 +142,57 @@ describe('sendStaleOrderReminders (Phase 3.6)', () => {
     expect(remindedOrderIds).not.toContain(orderId);
   });
 
-  it('does not remind an order in a status outside requested/supplier_rejected, even if old', async () => {
+  it('does not remind an order in a terminal status, even if old (Phase 3.7: only delivered/cancelled are excluded now)', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { status: 200 }));
-    const orderId = await createOrder();
-    await backdate(orderId, { status: 'supplier_confirmed', updatedAtHoursAgo: 5, staleReminderSentAtHoursAgo: null });
+    const deliveredId = await createOrder();
+    await backdate(deliveredId, { status: 'delivered', updatedAtHoursAgo: 5, staleReminderSentAtHoursAgo: null });
+    const cancelledId = await createOrder();
+    await backdate(cancelledId, { status: 'cancelled', updatedAtHoursAgo: 5, staleReminderSentAtHoursAgo: null });
 
     const { remindedOrderIds } = await sendStaleOrderReminders(240);
-    expect(remindedOrderIds).not.toContain(orderId);
+    expect(remindedOrderIds).not.toContain(deliveredId);
+    expect(remindedOrderIds).not.toContain(cancelledId);
+  });
+
+  // Phase 3.7: widened STALE_REMINDER_STATUSES from just requested/supplier_rejected to every
+  // non-terminal status — these four are the newly-covered ones.
+  it.each(['supplier_contacted', 'supplier_confirmed', 'driver_assigned', 'out_for_delivery'] as const)(
+    'reminds an order stuck in %s past the threshold (Phase 3.7 coverage)',
+    async (status) => {
+      vi.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { status: 200 }));
+      const orderId = await createOrder();
+      await backdate(orderId, { status, updatedAtHoursAgo: 5, staleReminderSentAtHoursAgo: null });
+
+      const { remindedOrderIds } = await sendStaleOrderReminders(240);
+      expect(remindedOrderIds).toContain(orderId);
+    },
+  );
+
+  it('records a stale_reminder history entry alongside the claim (Phase 3.7)', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { status: 200 }));
+    const orderId = await createOrder();
+    await backdate(orderId, { status: 'driver_assigned', updatedAtHoursAgo: 5, staleReminderSentAtHoursAgo: null });
+
+    const { remindedOrderIds } = await sendStaleOrderReminders(240);
+    expect(remindedOrderIds).toContain(orderId);
+
+    const history = await pool.query(
+      "SELECT type, note FROM order_status_history WHERE order_id = $1 AND type = 'stale_reminder'",
+      [orderId],
+    );
+    expect(history.rows).toHaveLength(1);
+    expect(history.rows[0].note).toMatch(/driver_assigned/);
+  });
+
+  it('excludes stale_reminder entries from the contractor-facing order detail (Phase 3.7)', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { status: 200 }));
+    const orderId = await createOrder();
+    await backdate(orderId, { status: 'requested', updatedAtHoursAgo: 5, staleReminderSentAtHoursAgo: null });
+    await sendStaleOrderReminders(240);
+
+    const res = await request(app).get('/orders/' + orderId).set('Authorization', 'Bearer ' + contractorToken);
+    expect(res.status).toBe(200);
+    expect(res.body.history.some((h: any) => h.type === 'stale_reminder')).toBe(false);
   });
 
   it('does not remind an order already reminded since its last update (no duplicate reminder)', async () => {

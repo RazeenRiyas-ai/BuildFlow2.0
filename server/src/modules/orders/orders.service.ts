@@ -51,11 +51,23 @@ export const HQ_ACTION_ALLOWED_STATUSES: Record<
   deliveryUpdate: ['driver_assigned', 'out_for_delivery'],
 };
 
-/** The two statuses an order can silently stall in with no further contractor- or HQ-initiated
- * action ever guaranteed to happen next — 'requested' (HQ hasn't yet logged a first supplier
- * contact) and 'supplier_rejected' (HQ hasn't yet re-contacted a different supplier). Every other
- * status either has a human actively driving it forward or is terminal. */
-const STALE_REMINDER_STATUSES: readonly OrderStatus[] = ['requested', 'supplier_rejected'];
+/**
+ * Every non-terminal status — i.e. every status an order can silently stall in with no further
+ * contractor- or HQ-initiated action ever guaranteed to happen next. Phase 3.6 originally covered
+ * only 'requested'/'supplier_rejected'; Phase 3.7 widens this to the complete set, since
+ * 'supplier_contacted' (HQ awaiting a supplier's response), 'supplier_confirmed' (confirmed but no
+ * driver ever assigned), and 'driver_assigned'/'out_for_delivery' (dispatched but never marked
+ * delivered) are exactly as capable of silently stalling forever. Only 'delivered' and 'cancelled'
+ * are excluded — both are terminal, so there is nothing left to stall.
+ */
+const STALE_REMINDER_STATUSES: readonly OrderStatus[] = [
+  'requested',
+  'supplier_contacted',
+  'supplier_rejected',
+  'supplier_confirmed',
+  'driver_assigned',
+  'out_for_delivery',
+];
 
 export interface StaleOrderReminderResult {
   remindedOrderIds: string[];
@@ -83,19 +95,35 @@ export interface StaleOrderReminderResult {
  * This is database-backed by design (not an in-memory cache) so dedup state survives every server
  * restart/deployment: a redeploy can never cause either a duplicate reminder for an order already
  * reminded since its last change, or a lost reminder for one that hasn't been.
+ *
+ * The claim and the 'stale_reminder' history-entry insert (Phase 3.7) happen in the same
+ * transaction as each other, per order — so the two can never disagree (a claimed order always
+ * has a matching history row, and vice versa), even though the push send itself stays outside the
+ * transaction and fire-and-forget, per this module's existing convention.
  */
 export async function sendStaleOrderReminders(thresholdMinutes: number): Promise<StaleOrderReminderResult> {
-  const result = await pool.query<{ id: string; site_label: string; status: OrderStatus }>(
-    `UPDATE orders
-     SET stale_reminder_sent_at = now()
-     WHERE status = ANY($2::order_status[])
-       AND updated_at < now() - make_interval(mins => $1::int)
-       AND (stale_reminder_sent_at IS NULL OR stale_reminder_sent_at < updated_at)
-     RETURNING id, site_label, status`,
-    [thresholdMinutes, STALE_REMINDER_STATUSES],
-  );
+  const claimed = await withTransaction(async (client) => {
+    const result = await client.query<{ id: string; site_label: string; status: OrderStatus }>(
+      `UPDATE orders
+       SET stale_reminder_sent_at = now()
+       WHERE status = ANY($2::order_status[])
+         AND updated_at < now() - make_interval(mins => $1::int)
+         AND (stale_reminder_sent_at IS NULL OR stale_reminder_sent_at < updated_at)
+       RETURNING id, site_label, status`,
+      [thresholdMinutes, STALE_REMINDER_STATUSES],
+    );
 
-  for (const row of result.rows) {
+    for (const row of result.rows) {
+      await client.query(
+        `INSERT INTO order_status_history (order_id, type, note) VALUES ($1, 'stale_reminder', $2)`,
+        [row.id, `No progress for at least ${thresholdMinutes} minutes while ${row.status}.`],
+      );
+    }
+
+    return result.rows;
+  });
+
+  for (const row of claimed) {
     // Fire-and-forget, exactly like every other push call site in this module — never awaited in
     // a way that could let one slow/failing device delay claiming the next stale order, and never
     // able to undo the claim above even if it fails (sendStaleOrderReminderToHqDevices itself
@@ -105,7 +133,7 @@ export async function sendStaleOrderReminders(thresholdMinutes: number): Promise
     );
   }
 
-  return { remindedOrderIds: result.rows.map((row) => row.id) };
+  return { remindedOrderIds: claimed.map((row) => row.id) };
 }
 
 interface CreateOrderItemInput {
@@ -319,8 +347,13 @@ export async function getOrderForContractor(contractorId: string, orderId: strin
   // status change. Deliberately still excludes supplier_id/carrier_info/actor_user_id — this is
   // the same privacy boundary as before, just no longer withholding the two fields that actually
   // explain what happened.
+  //
+  // 'stale_reminder' entries (Phase 3.7) are excluded entirely, not just left unlabeled — this
+  // type exists purely to give HQ an internal, auditable trace that its own reminder job acted;
+  // a contractor has no use for "HQ was reminded to follow up on this," and showing it would leak
+  // an internal operational signal with no corresponding label in this screen's own HISTORY_LABELS.
   const historyResult = await pool.query(
-    'SELECT id, type, from_status, to_status, contact_method, outcome, note, created_at FROM order_status_history WHERE order_id = $1 ORDER BY created_at ASC',
+    "SELECT id, type, from_status, to_status, contact_method, outcome, note, created_at FROM order_status_history WHERE order_id = $1 AND type != 'stale_reminder' ORDER BY created_at ASC",
     [orderId],
   );
 

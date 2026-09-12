@@ -21,7 +21,7 @@ export interface HqOrderQueueItem {
 
 export interface HqOrderHistoryEntry {
   id: string;
-  type: 'status_change' | 'supplier_contact' | 'supplier_assigned' | 'driver_assigned' | 'delivery_update';
+  type: 'status_change' | 'supplier_contact' | 'supplier_assigned' | 'driver_assigned' | 'delivery_update' | 'stale_reminder';
   fromStatus?: OrderStatus;
   toStatus?: OrderStatus;
   supplierId?: string;

@@ -49,6 +49,7 @@ const HISTORY_LABELS: Record<string, string> = {
   supplier_assigned: 'Supplier Assigned',
   driver_assigned: 'Driver Assigned',
   delivery_update: 'Delivery Update',
+  stale_reminder: 'Flagged as Stale',
 };
 
 interface OrderDetailData {

@@ -50,6 +50,10 @@ echo "restore-db.sh: restoring $DUMP_FILE into target database ..."
 # fresh scratch database or a different host — restoring ownership/grants would just fail or
 # restore the wrong owner; the schema/data is what matters for a recovery drill or disaster
 # recovery, not exactly reproducing role grants from the source environment.
-pg_restore --clean --if-exists --no-owner --no-privileges --dbname="$RESTORE_DATABASE_URL" "$DUMP_FILE"
+# --single-transaction: wraps the entire restore in one BEGIN/COMMIT so a failure partway through
+# (a truncated/corrupt dump file, a mid-restore error, disk full) rolls back everything instead of
+# leaving the target database in a partially-restored, inconsistent state — atomic all-or-nothing,
+# not "whatever happened to complete before the error."
+pg_restore --clean --if-exists --no-owner --no-privileges --single-transaction --dbname="$RESTORE_DATABASE_URL" "$DUMP_FILE"
 
 echo "restore-db.sh: restore complete"

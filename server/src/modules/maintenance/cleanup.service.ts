@@ -21,6 +21,14 @@ export interface CleanupResult {
  * auth.service.ts's rotation logic depends on (walking a token's family_id) for that token's full
  * natural lifetime, and for forensic visibility into a detected reuse attempt.
  *
+ * Explicit, confirmed scope note: a revoked-but-not-yet-expired refresh_tokens row is intentionally
+ * NEVER deleted merely because it is revoked — only `expires_at` governs deletion, for either
+ * table, unconditionally. This was reviewed and confirmed deliberately: revocation alone is not a
+ * deletion trigger here, by design, not by oversight. See the test cases in cleanup-job.test.ts
+ * covering all four states this implies — active (non-expired, non-revoked), revoked-but-unexpired,
+ * expired, and expired-and-revoked — the first two are always kept, the last two are always
+ * deleted, regardless of revocation status in either case.
+ *
  * Each table is cleaned independently, in its own try/catch, so a failure deleting from one table
  * never prevents the other from being cleaned in the same call — and so this function itself never
  * throws (see cleanup-job.ts's own doc comment for why a job tick must never crash the process).

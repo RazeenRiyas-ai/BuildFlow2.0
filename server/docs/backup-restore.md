@@ -66,6 +66,10 @@ Notes:
   certainly don't exist on a different host or a fresh scratch database, and for a recovery drill
   or disaster recovery it's the schema and data that matter, not reproducing the source
   environment's exact ownership/grants.
+- `--single-transaction` wraps the whole restore in one `BEGIN`/`COMMIT`: if it fails partway
+  through (a truncated/corrupt dump file, a mid-restore error, disk full), everything rolls back
+  instead of leaving the target database partially restored and inconsistent. A restore either
+  fully succeeds or leaves the target exactly as it was before you ran the command.
 
 ## 5. Disaster-recovery procedure
 

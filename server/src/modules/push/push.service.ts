@@ -248,3 +248,41 @@ export async function sendOrderStatusPushToContractor(input: ContractorOrderStat
     logger.error('sendOrderStatusPushToContractor failed', err, { orderId: input.orderId, status: input.status });
   }
 }
+
+interface DeliveryChargeSetPushInput {
+  orderId: string;
+  contractorId: string;
+  siteLabel: string;
+  amount: number;
+}
+
+/**
+ * A new precedent, not a continuation of one: every other HQ auxiliary action (hq.service.ts's
+ * recordSupplierContact/assignSupplier/assignDriver/recordDeliveryUpdate) never pushes to the
+ * contractor — only an actual order.status transition does (sendOrderStatusPushToContractor
+ * above). This is a deliberate exception: unlike "a driver was assigned," a delivery charge
+ * changes what the contractor owes, which is financially material information worth interrupting
+ * them for even though nothing about order.status itself changed.
+ *
+ * Payload stays as minimal as every other push here: site label + amount, nothing else — no
+ * address, phone, or driver information, matching the same "only what the device's own owner
+ * already knows" rule sendOrderStatusPushToContractor documents above. Never throws — same
+ * guarantee as every other push function in this file.
+ */
+export async function sendDeliveryChargeSetPushToContractor(input: DeliveryChargeSetPushInput): Promise<void> {
+  try {
+    const result = await pool.query<{ expo_push_token: string }>('SELECT expo_push_token FROM push_tokens WHERE user_id = $1', [
+      input.contractorId,
+    ]);
+    const tokens = result.rows.map((row) => row.expo_push_token);
+    if (tokens.length === 0) return;
+
+    await sendExpoPush(tokens, {
+      title: 'Delivery Charge Updated',
+      body: `Delivery charge for ${input.siteLabel} set to ₹${input.amount.toFixed(2)}.`,
+      data: { type: 'order_delivery_charge_set', orderId: input.orderId },
+    });
+  } catch (err) {
+    logger.error('sendDeliveryChargeSetPushToContractor failed', err, { orderId: input.orderId });
+  }
+}

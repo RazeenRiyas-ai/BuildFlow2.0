@@ -304,5 +304,21 @@ describe('Order rooms + order events (Socket.io)', () => {
       const payload = await eventPromise;
       expect(payload).toEqual({ orderId, occurredAt: expect.any(String) });
     });
+
+    it('emits order.delivery_charge_set with only orderId and occurredAt (no amount)', async () => {
+      await advanceStatusTo('supplier_confirmed');
+      const socket = await connected({ token: contractorToken });
+      await join(socket, orderId);
+
+      const eventPromise = waitForEvent(socket, 'order.delivery_charge_set');
+      const res = await request(app)
+        .post('/hq/orders/' + orderId + '/delivery-charge')
+        .set('Authorization', 'Bearer ' + hqToken)
+        .send({ amount: 199.5 });
+      expect(res.status).toBe(204);
+
+      const payload = await eventPromise;
+      expect(payload).toEqual({ orderId, occurredAt: expect.any(String) });
+    });
   });
 });

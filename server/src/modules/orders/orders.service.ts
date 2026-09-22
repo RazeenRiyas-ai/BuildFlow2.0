@@ -42,13 +42,17 @@ export const ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
  * enforced authoritatively server-side instead of being trusted as a client-side-only convention.
  */
 export const HQ_ACTION_ALLOWED_STATUSES: Record<
-  'supplierContact' | 'assignSupplier' | 'assignDriver' | 'deliveryUpdate',
+  'supplierContact' | 'assignSupplier' | 'assignDriver' | 'deliveryUpdate' | 'setDeliveryCharge',
   readonly OrderStatus[]
 > = {
   supplierContact: ['requested', 'supplier_contacted', 'supplier_rejected'],
   assignSupplier: ['supplier_contacted', 'supplier_confirmed'],
   assignDriver: ['supplier_confirmed', 'driver_assigned'],
   deliveryUpdate: ['driver_assigned', 'out_for_delivery'],
+  // Delivery cost isn't knowable until a supplier is confirmed (that's what determines where the
+  // materials are actually coming from), and stops being editable once the order is delivered or
+  // cancelled — the same union of statuses assignDriver and deliveryUpdate already cover.
+  setDeliveryCharge: ['supplier_confirmed', 'driver_assigned', 'out_for_delivery'],
 };
 
 /**
@@ -347,7 +351,7 @@ export async function listOrdersForContractor(contractorId: string) {
 
 export async function getOrderForContractor(contractorId: string, orderId: string) {
   const orderResult = await pool.query(
-    'SELECT id, status, site_label, site_address, estimated_delivery_days, contractor_note, assigned_supplier_id, assigned_driver_id, driver_name, driver_phone, created_at, updated_at FROM orders WHERE id = $1 AND contractor_id = $2',
+    'SELECT id, status, site_label, site_address, estimated_delivery_days, contractor_note, assigned_supplier_id, assigned_driver_id, driver_name, driver_phone, delivery_charge, created_at, updated_at FROM orders WHERE id = $1 AND contractor_id = $2',
     [orderId, contractorId],
   );
   const order = orderResult.rows[0];
@@ -368,8 +372,11 @@ export async function getOrderForContractor(contractorId: string, orderId: strin
   // type exists purely to give HQ an internal, auditable trace that its own reminder job acted;
   // a contractor has no use for "HQ was reminded to follow up on this," and showing it would leak
   // an internal operational signal with no corresponding label in this screen's own HISTORY_LABELS.
+  // 'delivery_charge_set' entries ARE shown to the contractor (unlike 'stale_reminder', which is
+  // HQ-internal) — this is literally a fact about their own order's price, not an internal
+  // operational signal.
   const historyResult = await pool.query(
-    "SELECT id, type, from_status, to_status, contact_method, outcome, note, created_at FROM order_status_history WHERE order_id = $1 AND type != 'stale_reminder' ORDER BY created_at ASC",
+    "SELECT id, type, from_status, to_status, contact_method, outcome, amount, note, created_at FROM order_status_history WHERE order_id = $1 AND type != 'stale_reminder' ORDER BY created_at ASC",
     [orderId],
   );
 

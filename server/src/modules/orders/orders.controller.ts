@@ -52,6 +52,10 @@ function toOrderDetailShape(row: any) {
     assignedDriverId: row.assigned_driver_id ?? undefined,
     driverName: row.driver_name ?? undefined,
     driverPhone: row.driver_phone ?? undefined,
+    // Distinct from `?? undefined`: a delivery charge of exactly 0 (HQ's explicit "free delivery")
+    // must survive as 0, not be coerced away — only a genuinely NULL DB value (not yet determined)
+    // becomes `null` here. See hq.service.ts's setDeliveryCharge for the same rule at the DB layer.
+    deliveryCharge: row.delivery_charge === null || row.delivery_charge === undefined ? null : Number(row.delivery_charge),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     items: row.items.map(toItemShape),
@@ -65,6 +69,9 @@ function toOrderDetailShape(row: any) {
       // status change. supplierId/carrierInfo/actorUserId remain HQ-only, unchanged.
       contactMethod: h.contact_method ?? undefined,
       outcome: h.outcome ?? undefined,
+      // amount (delivery_charge_set entries): the contractor's own order price, unlike
+      // supplierId/carrierInfo/actorUserId which stay HQ-only.
+      amount: h.amount === null || h.amount === undefined ? undefined : Number(h.amount),
       note: h.note ?? undefined,
       createdAt: h.created_at,
     })),

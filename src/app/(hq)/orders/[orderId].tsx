@@ -24,8 +24,10 @@ import {
   getSuppliers,
   recordDeliveryUpdate,
   recordSupplierContact,
+  setDeliveryCharge,
   updateHqOrderStatus,
 } from '@/services/hq-service';
+import { formatCurrency } from '@/utils/format-currency';
 import { AppIcon, Driver, HqOrderDetail, OrderStatus, Supplier } from '@/types';
 import { toUserMessage } from '@/utils/format-error';
 import { pluralizeUnit } from '@/types/unit';
@@ -49,6 +51,7 @@ const HISTORY_LABELS: Record<string, string> = {
   supplier_assigned: 'Supplier Assigned',
   driver_assigned: 'Driver Assigned',
   delivery_update: 'Delivery Update',
+  delivery_charge_set: 'Delivery Charge Updated',
   stale_reminder: 'Flagged as Stale',
 };
 
@@ -134,6 +137,7 @@ export default function HqOrderDetailScreen() {
   const canAssignSupplier = ['supplier_contacted', 'supplier_confirmed'].includes(order.status);
   const canAssignDriver = ['supplier_confirmed', 'driver_assigned'].includes(order.status);
   const canLogDelivery = ['driver_assigned', 'out_for_delivery'].includes(order.status);
+  const canSetDeliveryCharge = ['supplier_confirmed', 'driver_assigned', 'out_for_delivery'].includes(order.status);
 
   return (
     <ScreenContainer>
@@ -161,6 +165,10 @@ export default function HqOrderDetailScreen() {
         ))}
         <OrderSummaryRow label="Delivery Site" value={order.siteLabel} subvalue={order.siteAddress} />
         <OrderSummaryRow label="Estimated Delivery" value={order.estimatedDeliveryDays} />
+        <OrderSummaryRow
+          label="Delivery Charge"
+          value={order.deliveryCharge !== null ? formatCurrency(order.deliveryCharge) : 'Not set'}
+        />
         {order.contractorNote && <OrderSummaryRow label="Contractor Note" value={order.contractorNote} />}
         {order.driverName && <OrderSummaryRow label="Driver" value={order.driverName} subvalue={order.driverPhone} />}
       </ThemedView>
@@ -207,6 +215,10 @@ export default function HqOrderDetailScreen() {
 
       {canLogDelivery && <DeliveryUpdateForm orderId={orderId} onDone={refetch} />}
 
+      {canSetDeliveryCharge && (
+        <DeliveryChargeForm orderId={orderId} currentAmount={order.deliveryCharge} onDone={refetch} />
+      )}
+
       {order.history.length > 0 && (
         <ThemedView type="backgroundElement" style={styles.historyCard}>
           <ThemedText type="smallBold">History</ThemedText>
@@ -226,6 +238,11 @@ export default function HqOrderDetailScreen() {
               {entry.carrierInfo && (
                 <ThemedText type="small" themeColor="textSecondary">
                   {entry.carrierInfo}
+                </ThemedText>
+              )}
+              {entry.amount !== undefined && (
+                <ThemedText type="small" themeColor="textSecondary">
+                  {formatCurrency(entry.amount)}
                 </ThemedText>
               )}
               {entry.note && (
@@ -661,6 +678,77 @@ function DeliveryUpdateForm({ orderId, onDone }: { orderId: string; onDone: () =
       <Field label="Note" value={note} onChangeText={setNote} placeholder="e.g. Left warehouse at 2pm" />
       {error && <ErrorBanner message={error} onRetry={handleSave} />}
       <PrimaryButton label="Log Update" variant="outline" disabled={!canSave} loading={saving} onPress={handleSave} />
+    </View>
+  );
+}
+
+/**
+ * Editable, not set-once: `currentAmount` (null until HQ first sets it) pre-fills the field so
+ * correcting an existing charge is just "change the number and save again," not "clear and
+ * re-enter." Manual entry only — no automatic distance/weight-based calculation, matching this
+ * feature's explicit operational-MVP scope.
+ */
+function DeliveryChargeForm({
+  orderId,
+  currentAmount,
+  onDone,
+}: {
+  orderId: string;
+  currentAmount: number | null;
+  onDone: () => Promise<void>;
+}) {
+  const [amount, setAmount] = useState(currentAmount !== null ? String(currentAmount) : '');
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const savingRef = useRef(false);
+
+  const parsedAmount = Number(amount);
+  const canSave = amount.trim().length > 0 && Number.isFinite(parsedAmount) && parsedAmount >= 0;
+
+  async function handleSave() {
+    if (!canSave) return;
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setError(null);
+    try {
+      await setDeliveryCharge(orderId, { amount: parsedAmount, note: note.trim() || undefined });
+      setNote('');
+      await onDone();
+    } catch (err) {
+      setError(toUserMessage(err));
+    } finally {
+      setSaving(false);
+      savingRef.current = false;
+    }
+  }
+
+  return (
+    <View style={styles.section}>
+      <ThemedText type="smallBold">{currentAmount !== null ? 'Edit Delivery Charge' : 'Set Delivery Charge'}</ThemedText>
+      <View style={styles.field}>
+        <ThemedText type="small" themeColor="textSecondary">
+          Amount (₹)
+        </ThemedText>
+        <TextInput
+          style={styles.input}
+          value={amount}
+          onChangeText={setAmount}
+          placeholder="e.g. 150"
+          placeholderTextColor={Colors.textSecondary}
+          keyboardType="decimal-pad"
+        />
+      </View>
+      <Field label="Note (optional)" value={note} onChangeText={setNote} placeholder="Additional detail" />
+      {error && <ErrorBanner message={error} onRetry={handleSave} />}
+      <PrimaryButton
+        label={currentAmount !== null ? 'Update Delivery Charge' : 'Set Delivery Charge'}
+        variant="outline"
+        disabled={!canSave}
+        loading={saving}
+        onPress={handleSave}
+      />
     </View>
   );
 }

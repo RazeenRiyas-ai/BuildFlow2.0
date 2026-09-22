@@ -8,11 +8,12 @@ const ORDER_EVENTS = [
   'order.supplier_assigned',
   'order.driver_assigned',
   'order.delivery_updated',
+  'order.delivery_charge_set',
 ] as const;
 
 /**
  * Subscribes to live updates for one order while this screen is mounted, and calls `onUpdate`
- * (typically the screen's own `refetch`) whenever any of the 5 order events arrive. Payloads are
+ * (typically the screen's own `refetch`) whenever any of the order events above arrive. Payloads are
  * deliberately never used directly — refetching through the existing, already-trusted REST path
  * keeps this the single source of truth instead of hand-patching state from two places.
  *

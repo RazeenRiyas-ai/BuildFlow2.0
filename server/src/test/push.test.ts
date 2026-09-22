@@ -518,6 +518,60 @@ describe('contractor order-status push — end-to-end wiring and isolation', () 
     expect(detail.body.status).toBe('supplier_contacted');
   });
 
+  it('HQ setting a delivery charge pushes only to that order’s own contractor, with a minimal payload', async () => {
+    const orderRes = await request(app)
+      .post('/orders')
+      .set('Authorization', 'Bearer ' + contractorAToken)
+      .send({ siteId: siteAId, items: [{ materialId, quantity: minOrderQuantity }] });
+    const orderId = orderRes.body.id as string;
+
+    // Let order creation's own fire-and-forget HQ push settle first — same reasoning as the other
+    // tests in this block — then drive the order to a status where setDeliveryCharge is allowed
+    // (supplier_confirmed) before installing the fetch mock this test actually asserts on.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    await request(app)
+      .patch('/hq/orders/' + orderId + '/status')
+      .set('Authorization', 'Bearer ' + hqToken)
+      .send({ status: 'supplier_contacted' });
+    const suppliers = await request(app).get('/suppliers').set('Authorization', 'Bearer ' + hqToken);
+    const supplierId = suppliers.body[0].id;
+    await request(app)
+      .post('/hq/orders/' + orderId + '/assign-supplier')
+      .set('Authorization', 'Bearer ' + hqToken)
+      .send({ supplierId });
+    await request(app)
+      .patch('/hq/orders/' + orderId + '/status')
+      .set('Authorization', 'Bearer ' + hqToken)
+      .send({ status: 'supplier_confirmed' });
+
+    // That status transition fires its own fire-and-forget contractor push (an actual order.status
+    // change) — let it settle before installing the mock below, or it would be miscounted as the
+    // delivery-charge push this test actually asserts on.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const calls: { url: string; body: any }[] = [];
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: any, init: any) => {
+      calls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : null });
+      return new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { status: 200 });
+    });
+
+    const chargeRes = await request(app)
+      .post('/hq/orders/' + orderId + '/delivery-charge')
+      .set('Authorization', 'Bearer ' + hqToken)
+      .send({ amount: 150 });
+    expect(chargeRes.status).toBe(204);
+
+    await waitFor(() => calls.length > 0);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].body.to).toEqual([pushTokenA]);
+    expect(calls[0].body.to).not.toContain(pushTokenB);
+    expect(calls[0].body.to).not.toContain(pushTokenHq);
+    // Minimal, non-sensitive payload — no address/phone/driver info, matching every other push here.
+    expect(calls[0].body.data).toEqual({ type: 'order_delivery_charge_set', orderId });
+  });
+
   it('an unauthorized contractor cannot fetch another contractor’s order, even knowing its exact id (as a notification tap would claim)', async () => {
     const orderRes = await request(app)
       .post('/orders')

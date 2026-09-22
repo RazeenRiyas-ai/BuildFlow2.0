@@ -9,6 +9,7 @@ export const ORDER_EVENTS = {
   SUPPLIER_ASSIGNED: 'order.supplier_assigned',
   DRIVER_ASSIGNED: 'order.driver_assigned',
   DELIVERY_UPDATED: 'order.delivery_updated',
+  DELIVERY_CHARGE_SET: 'order.delivery_charge_set',
 } as const;
 
 interface OrderEventBase {
@@ -38,6 +39,11 @@ export type OrderDriverAssignedPayload = OrderEventBase;
 /** Deliberately just the base shape: the delivery note is free text an operator typed and is
  * fetched via the existing, already-authorized REST endpoint rather than broadcast here. */
 export type OrderDeliveryUpdatedPayload = OrderEventBase;
+
+/** Deliberately just the base shape — the actual charge amount is financially material and is
+ * fetched via the existing, already-authorized REST endpoint (which enforces contractor
+ * ownership) rather than broadcast here, exactly like every other order event above. */
+export type OrderDeliveryChargeSetPayload = OrderEventBase;
 
 /**
  * Emits to everyone currently subscribed to this order's room. Never throws: realtime delivery
@@ -76,4 +82,9 @@ export function emitDriverAssigned(orderId: string) {
 export function emitDeliveryUpdated(orderId: string) {
   const payload: OrderDeliveryUpdatedPayload = { orderId, occurredAt: new Date().toISOString() };
   emit(orderId, ORDER_EVENTS.DELIVERY_UPDATED, payload);
+}
+
+export function emitDeliveryChargeSet(orderId: string) {
+  const payload: OrderDeliveryChargeSetPayload = { orderId, occurredAt: new Date().toISOString() };
+  emit(orderId, ORDER_EVENTS.DELIVERY_CHARGE_SET, payload);
 }

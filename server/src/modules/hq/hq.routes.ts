@@ -10,6 +10,7 @@ import { supplierContactSchema } from './hq.schemas';
 import { assignSupplierSchema } from './hq.schemas';
 import { assignDriverSchema } from './hq.schemas';
 import { deliveryUpdateSchema } from './hq.schemas';
+import { setDeliveryChargeSchema } from './hq.schemas';
 import * as materialsAdminController from '../materials/materials.admin.controller';
 import {
   listHqMaterialsQuerySchema,
@@ -32,6 +33,7 @@ hqRouter.post('/orders/:id/supplier-contact', validate({ params: uuidParamSchema
 hqRouter.post('/orders/:id/assign-supplier', validate({ params: uuidParamSchema, body: assignSupplierSchema }), asyncHandler(hqController.assignSupplier));
 hqRouter.post('/orders/:id/assign-driver', validate({ params: uuidParamSchema, body: assignDriverSchema }), asyncHandler(hqController.assignDriver));
 hqRouter.post('/orders/:id/delivery-update', validate({ params: uuidParamSchema, body: deliveryUpdateSchema }), asyncHandler(hqController.deliveryUpdate));
+hqRouter.post('/orders/:id/delivery-charge', validate({ params: uuidParamSchema, body: setDeliveryChargeSchema }), asyncHandler(hqController.setDeliveryCharge));
 
 // --- Material management (Phase 3.1) ---
 hqRouter.get('/materials', validate({ query: listHqMaterialsQuerySchema }), asyncHandler(materialsAdminController.list));

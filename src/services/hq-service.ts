@@ -8,6 +8,7 @@ import {
   HqOrderDetail,
   HqOrderQueueItem,
   OrderStatus,
+  SetDeliveryChargeInput,
   SupplierContactInput,
   Supplier,
   UpdateDriverInput,
@@ -46,6 +47,10 @@ export async function assignDriver(orderId: string, input: AssignDriverInput): P
 
 export async function recordDeliveryUpdate(orderId: string, note: string): Promise<void> {
   await apiClient.post<void>(`/hq/orders/${orderId}/delivery-update`, { note });
+}
+
+export async function setDeliveryCharge(orderId: string, input: SetDeliveryChargeInput): Promise<void> {
+  await apiClient.post<void>(`/hq/orders/${orderId}/delivery-charge`, input);
 }
 
 export async function getSuppliers(includeInactive?: boolean): Promise<Supplier[]> {

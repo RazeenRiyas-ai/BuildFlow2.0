@@ -65,6 +65,7 @@ const HISTORY_LABELS: Record<string, string> = {
   supplier_assigned: 'Supplier Assigned',
   driver_assigned: 'Driver Assigned',
   delivery_update: 'Delivery Update',
+  delivery_charge_set: 'Delivery Charge Updated',
 };
 
 export default function OrderStatusScreen() {
@@ -127,7 +128,12 @@ export default function OrderStatusScreen() {
     );
   }
 
-  const total = order.items.reduce((sum, item) => sum + item.pricePerUnit * item.quantity, 0);
+  const materialsSubtotal = order.items.reduce((sum, item) => sum + item.pricePerUnit * item.quantity, 0);
+  // `null` means HQ hasn't determined a delivery charge yet — never treat that as 0 (which is HQ
+  // explicitly answering "free delivery"). Showing the materials subtotal alone as "the total" in
+  // that case would misleadingly present an incomplete number as the final estimate.
+  const deliveryChargeKnown = order.deliveryCharge !== null;
+  const estimatedTotal = deliveryChargeKnown ? materialsSubtotal + order.deliveryCharge! : null;
   const copy = STATUS_COPY[order.status];
   const canCancel = order.status === 'requested';
 
@@ -153,7 +159,15 @@ export default function OrderStatusScreen() {
               value={`${orderItem.quantity} ${pluralizeUnit(orderItem.unit, orderItem.quantity)}`}
             />
           ))}
-          <OrderSummaryRow label="Estimated Total" value={formatCurrency(total)} />
+          <OrderSummaryRow label="Materials Subtotal" value={formatCurrency(materialsSubtotal)} />
+          <OrderSummaryRow
+            label="Delivery Charge"
+            value={deliveryChargeKnown ? formatCurrency(order.deliveryCharge!) : 'To be confirmed'}
+          />
+          <OrderSummaryRow
+            label="Estimated Total"
+            value={deliveryChargeKnown ? formatCurrency(estimatedTotal!) : 'Pending delivery charge'}
+          />
           <OrderSummaryRow label="Delivery Site" value={order.siteLabel} subvalue={order.siteAddress} />
           <OrderSummaryRow label="Estimated Delivery" value={order.estimatedDeliveryDays} />
           <OrderSummaryRow
@@ -185,6 +199,11 @@ export default function OrderStatusScreen() {
                 {entry.contactMethod && (
                   <ThemedText type="small" themeColor="textSecondary">
                     {entry.contactMethod} · {entry.outcome}
+                  </ThemedText>
+                )}
+                {entry.amount !== undefined && (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {formatCurrency(entry.amount)}
                   </ThemedText>
                 )}
                 {entry.note && (

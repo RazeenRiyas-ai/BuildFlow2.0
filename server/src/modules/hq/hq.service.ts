@@ -2,6 +2,7 @@ import type { PoolClient } from 'pg';
 import { pool, withTransaction } from '../../config/db';
 import { NotFoundError, ConflictError } from '../../utils/app-error';
 import { ErrorCode } from '../../errors/error-codes';
+import { logger } from '../../utils/logger';
 import { transitionOrderStatus, HQ_ACTION_ALLOWED_STATUSES } from '../orders/orders.service';
 import type { OrderStatus } from '../orders/orders.service';
 import {
@@ -9,7 +10,9 @@ import {
   emitSupplierAssigned,
   emitDriverAssigned,
   emitDeliveryUpdated,
+  emitDeliveryChargeSet,
 } from '../../realtime/order-events';
+import { sendDeliveryChargeSetPushToContractor } from '../push/push.service';
 
 interface ListOrdersFilters {
   status?: OrderStatus;
@@ -44,7 +47,7 @@ export async function listOrdersForHq(filters: ListOrdersFilters = {}) {
 }
 
 export async function getOrderForHq(orderId: string) {
-  const orderColumns = 'o.id, o.status, o.site_label, o.site_address, o.estimated_delivery_days, o.contractor_note, o.assigned_supplier_id, o.assigned_driver_id, o.driver_name, o.driver_phone, o.created_at, o.updated_at';
+  const orderColumns = 'o.id, o.status, o.site_label, o.site_address, o.estimated_delivery_days, o.contractor_note, o.assigned_supplier_id, o.assigned_driver_id, o.driver_name, o.driver_phone, o.delivery_charge, o.created_at, o.updated_at';
   const contractorColumns = 'c.name AS contractor_name, c.company_name AS contractor_company_name, c.phone AS contractor_phone';
   const orderSql = 'SELECT ' + orderColumns + ', ' + contractorColumns + ' FROM orders o JOIN contractors c ON c.id = o.contractor_id WHERE o.id = $1';
   const orderResult = await pool.query(orderSql, [orderId]);
@@ -54,7 +57,7 @@ export async function getOrderForHq(orderId: string) {
   const itemsSql = 'SELECT id, material_id, material_name, unit, price_per_unit, quantity FROM order_items WHERE order_id = $1 ORDER BY display_order, id';
   const itemsResult = await pool.query(itemsSql, [orderId]);
 
-  const historyColumns = 'id, type, from_status, to_status, supplier_id, contact_method, outcome, carrier_info, note, actor_user_id, created_at';
+  const historyColumns = 'id, type, from_status, to_status, supplier_id, contact_method, outcome, carrier_info, amount, note, actor_user_id, created_at';
   const historySql = 'SELECT ' + historyColumns + ' FROM order_status_history WHERE order_id = $1 ORDER BY created_at ASC';
   const historyResult = await pool.query(historySql, [orderId]);
 
@@ -208,4 +211,50 @@ export async function recordDeliveryUpdate(orderId: string, actorUserId: string,
   });
 
   emitDeliveryUpdated(orderId);
+}
+
+interface SetDeliveryChargeInput {
+  amount: number;
+  note?: string;
+}
+
+/**
+ * Manually-set delivery charge — never automatically calculated from distance/weight/etc (see
+ * orders.service.ts's HQ_ACTION_ALLOWED_STATUSES.setDeliveryCharge for why this status window was
+ * chosen: delivery cost isn't knowable until a supplier is confirmed, and stops being editable
+ * once the order is delivered or cancelled).
+ *
+ * NULL vs 0 stays meaningfully distinct: this is only ever called with a real number (the Zod
+ * schema at the route layer requires one), so `orders.delivery_charge` only ever moves from NULL
+ * to an explicit value here — 0 is HQ deliberately answering "free delivery," never a sentinel for
+ * "unset." Editable, not set-once: calling this again for the same order (e.g. a correction after
+ * re-checking with the supplier) is a fresh, independent audit row every time, exactly like every
+ * other HQ action's history in this file — never an update to a previous row.
+ *
+ * The push and realtime emit both fire only after the transaction below has committed — a
+ * rejected/rolled-back attempt (order not found, wrong status) never notifies anyone.
+ */
+export async function setDeliveryCharge(orderId: string, actorUserId: string, input: SetDeliveryChargeInput) {
+  const { contractorId, siteLabel } = await withTransaction(async (client) => {
+    await lockOrderForAction(client, orderId, HQ_ACTION_ALLOWED_STATUSES.setDeliveryCharge, 'set the delivery charge');
+
+    const result = await client.query<{ contractor_id: string; site_label: string }>(
+      'UPDATE orders SET delivery_charge = $1, updated_at = now() WHERE id = $2 RETURNING contractor_id, site_label',
+      [input.amount, orderId],
+    );
+
+    await client.query(
+      `INSERT INTO order_status_history (order_id, type, amount, actor_user_id, note)
+       VALUES ($1, 'delivery_charge_set', $2, $3, $4)`,
+      [orderId, input.amount, actorUserId, input.note ?? null],
+    );
+
+    return { contractorId: result.rows[0].contractor_id, siteLabel: result.rows[0].site_label };
+  });
+
+  emitDeliveryChargeSet(orderId);
+
+  sendDeliveryChargeSetPushToContractor({ orderId, contractorId, siteLabel, amount: input.amount }).catch((err) =>
+    logger.error('sendDeliveryChargeSetPushToContractor failed', err, { orderId }),
+  );
 }

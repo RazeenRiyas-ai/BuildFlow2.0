@@ -54,6 +54,12 @@ function toDetailShape(row: any) {
     assignedDriverId: row.assigned_driver_id ?? undefined,
     driverName: row.driver_name ?? undefined,
     driverPhone: row.driver_phone ?? undefined,
+    // Distinct from `?? undefined`: a delivery charge of exactly 0 must survive as 0, not be
+    // coerced away — only a genuinely NULL/undefined DB value becomes `null` here. This is the API
+    // boundary where the NULL-vs-0 distinction from the database is preserved into the response
+    // shape (see server/migrations/1735610000000_delivery_charge.js and hq.service.ts's
+    // setDeliveryCharge for the same rule stated at the DB/service layer).
+    deliveryCharge: row.delivery_charge === null || row.delivery_charge === undefined ? null : Number(row.delivery_charge),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     contractorName: row.contractor_name,
@@ -69,6 +75,7 @@ function toDetailShape(row: any) {
       contactMethod: h.contact_method ?? undefined,
       outcome: h.outcome ?? undefined,
       carrierInfo: h.carrier_info ?? undefined,
+      amount: h.amount === null || h.amount === undefined ? undefined : Number(h.amount),
       note: h.note ?? undefined,
       actorUserId: h.actor_user_id ?? undefined,
       createdAt: h.created_at,
@@ -118,5 +125,11 @@ export async function assignDriver(req: Request, res: Response) {
 export async function deliveryUpdate(req: Request, res: Response) {
   const actorUserId = req.user!.sub;
   await hqService.recordDeliveryUpdate(req.params.id, actorUserId, req.body.note);
+  res.status(204).send();
+}
+
+export async function setDeliveryCharge(req: Request, res: Response) {
+  const actorUserId = req.user!.sub;
+  await hqService.setDeliveryCharge(req.params.id, actorUserId, req.body);
   res.status(204).send();
 }

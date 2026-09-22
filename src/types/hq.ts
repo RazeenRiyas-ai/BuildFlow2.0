@@ -21,13 +21,23 @@ export interface HqOrderQueueItem {
 
 export interface HqOrderHistoryEntry {
   id: string;
-  type: 'status_change' | 'supplier_contact' | 'supplier_assigned' | 'driver_assigned' | 'delivery_update' | 'stale_reminder';
+  type:
+    | 'status_change'
+    | 'supplier_contact'
+    | 'supplier_assigned'
+    | 'driver_assigned'
+    | 'delivery_update'
+    | 'delivery_charge_set'
+    | 'stale_reminder';
   fromStatus?: OrderStatus;
   toStatus?: OrderStatus;
   supplierId?: string;
   contactMethod?: string;
   outcome?: string;
   carrierInfo?: string;
+  /** Present only on 'delivery_charge_set' entries — the exact amount set at that point in time,
+   * in rupees. */
+  amount?: number;
   note?: string;
   actorUserId?: string;
   createdAt: string;
@@ -44,6 +54,8 @@ export interface HqOrderDetail {
   assignedDriverId?: string;
   driverName?: string;
   driverPhone?: string;
+  /** `null` means not yet determined by HQ — distinct from `0` (explicit free delivery). */
+  deliveryCharge: number | null;
   createdAt: string;
   updatedAt: string;
   contractorName: string;
@@ -74,6 +86,11 @@ export interface AssignSupplierInput {
 
 export interface AssignDriverInput {
   driverId: string;
+  note?: string;
+}
+
+export interface SetDeliveryChargeInput {
+  amount: number;
   note?: string;
 }
 

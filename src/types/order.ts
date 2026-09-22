@@ -19,7 +19,7 @@ export interface OrderItem {
 
 export interface OrderHistoryEntry {
   id: string;
-  type: 'status_change' | 'supplier_contact' | 'supplier_assigned' | 'driver_assigned' | 'delivery_update';
+  type: 'status_change' | 'supplier_contact' | 'supplier_assigned' | 'driver_assigned' | 'delivery_update' | 'delivery_charge_set';
   fromStatus?: OrderStatus;
   toStatus?: OrderStatus;
   /** HQ's own record of how a supplier was reached and what came of it — present on
@@ -27,6 +27,9 @@ export interface OrderHistoryEntry {
    * status change. */
   contactMethod?: string;
   outcome?: string;
+  /** Present only on 'delivery_charge_set' entries — the exact amount HQ set at that point in
+   * time, in rupees. */
+  amount?: number;
   note?: string;
   createdAt: string;
 }
@@ -47,6 +50,9 @@ export interface OrderDetail extends Order {
   contractorNote?: string;
   driverName?: string;
   driverPhone?: string;
+  /** `null` means HQ hasn't determined a delivery charge yet — distinct from `0`, which is HQ
+   * explicitly setting free delivery. Never coerce one into the other in the UI. */
+  deliveryCharge: number | null;
   history: OrderHistoryEntry[];
 }
 

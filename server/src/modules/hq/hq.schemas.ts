@@ -40,3 +40,18 @@ export const assignDriverSchema = z.object({
 export const deliveryUpdateSchema = z.object({
   note: z.string().trim().min(1).max(500),
 });
+
+export const setDeliveryChargeSchema = z.object({
+  // NUMERIC(10,2), matching order_items.price_per_unit's own precision: nonnegative (0 is a valid,
+  // explicit "free delivery" answer — see hq.service.ts's setDeliveryCharge for why this must stay
+  // distinct from NULL/"not yet set"), and at most 2 decimal places so what HQ enters is exactly
+  // what gets stored, with no silent rounding.
+  amount: z.coerce
+    .number()
+    .nonnegative('Delivery charge cannot be negative')
+    .finite()
+    // Math.round(n * 100) is ALWAYS an integer by definition, so checking Number.isInteger on it
+    // would be a no-op — the actual check is whether rounding to cents changed the value at all.
+    .refine((n) => Math.abs(n * 100 - Math.round(n * 100)) < 1e-9, 'Delivery charge can have at most 2 decimal places'),
+  note: z.string().trim().max(500).optional(),
+});
